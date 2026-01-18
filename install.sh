@@ -9,7 +9,7 @@ set -Eeuo pipefail
 # === Configuration ===
 INSTALL_DIR="$HOME/bigdata"
 HADOOP_VERSION="${HADOOP_VERSION:-3.4.2}"      # Latest stable release (Aug 2025)
-SPARK_VERSION="${SPARK_VERSION:-3.5.3}"        # Latest verified stable (Sep 2025)
+SPARK_VERSION="${SPARK_VERSION:-3.5.1}"        # Latest verified stable (Sep 2025)
 KAFKA_VERSION="${KAFKA_VERSION:-4.1.1}"        # Latest stable with KRaft (Nov 2025)
 PIG_VERSION="${PIG_VERSION:-0.18.0}"           # Latest with Hadoop 3 support (Sep 2025)
 JAVA_VERSION="11"
