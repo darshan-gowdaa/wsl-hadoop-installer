@@ -1008,8 +1008,8 @@ setup_environment() {
     fi
     
     if ! grep -q "HADOOP_HOME" "$HOME/.bashrc"; then
-    log "Adding environment variables to .bashrc..."
-    cat >> "$HOME/.bashrc" <<'EOF'
+        log "Adding environment variables to .bashrc..."
+        cat >> "$HOME/.bashrc" <<'BASHRC_EOF'
 
 # Hadoop Ecosystem Environment
 export HADOOP_HOME=$HOME/bigdata/hadoop
@@ -1017,36 +1017,17 @@ export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
 export SPARK_HOME=$HOME/bigdata/spark
 export KAFKA_HOME=$HOME/bigdata/kafka
 export PIG_HOME=$HOME/bigdata/pig
-export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$PIG_HOME/bin:$PATH
+export JAVA_17_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$PIG_HOME/bin:$PATH
 
-# Kafka Java 17 wrapper functions (Kafka 4.x requires Java 17)
-kafka-topics() {
-    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 $KAFKA_HOME/bin/kafka-topics.sh "$@"
-}
-
-kafka-console-producer() {
-    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 $KAFKA_HOME/bin/kafka-console-producer.sh "$@"
-}
-
-kafka-console-consumer() {
-    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 $KAFKA_HOME/bin/kafka-console-consumer.sh "$@"
-}
-
-kafka-server-start() {
-    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 $KAFKA_HOME/bin/kafka-server-start.sh "$@"
-}
-
-kafka-server-stop() {
-    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 $KAFKA_HOME/bin/kafka-server-stop.sh "$@"
-}
-
-export -f kafka-topics 2>/dev/null || true
-export -f kafka-console-producer 2>/dev/null || true
-export -f kafka-console-consumer 2>/dev/null || true
-export -f kafka-server-start 2>/dev/null || true
-export -f kafka-server-stop 2>/dev/null || true
-EOF
-fi
+# Kafka aliases (Kafka 4.x requires Java 17)
+alias kafka-topics='JAVA_HOME=$JAVA_17_HOME $KAFKA_HOME/bin/kafka-topics.sh'
+alias kafka-console-producer='JAVA_HOME=$JAVA_17_HOME $KAFKA_HOME/bin/kafka-console-producer.sh'
+alias kafka-console-consumer='JAVA_HOME=$JAVA_17_HOME $KAFKA_HOME/bin/kafka-console-consumer.sh'
+alias kafka-server-start='JAVA_HOME=$JAVA_17_HOME $KAFKA_HOME/bin/kafka-server-start.sh'
+alias kafka-server-stop='JAVA_HOME=$JAVA_17_HOME $KAFKA_HOME/bin/kafka-server-stop.sh'
+BASHRC_EOF
+    fi
     
     mark_done "env_setup"
     echo -e "${GREEN}✓ Environment configured${NC}"
@@ -1222,6 +1203,7 @@ RESTARTSCRIPT
 }
 
 # === Start Services with Progress ===
+# === Start Services with Progress ===
 start_services() {
     step_header 10 10 "Starting Services"
     
@@ -1329,6 +1311,7 @@ start_services() {
     
     echo -e "${GREEN}✓ All services started successfully${NC}"
 }
+
 
 # === Verification ===
 verify_installation() {
