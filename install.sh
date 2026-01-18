@@ -1107,7 +1107,7 @@ install_pig() {
         fi
         
         log "Extracting Pig..."
-        echo -e "${YELLOW}Screen might flicker and Desktop may reload not panic, wait...${NC}"
+        echo -e "${YELLOW}Screen might flicker and Desktop may reload dont panic, be patient...${NC}"
         (tar -xzf "pig-0.17.0.tar.gz") &
         spinner $! "Extracting Pig archive"
     fi
@@ -1137,13 +1137,18 @@ install_hive() {
         local HIVE_URL="https://archive.apache.org/dist/hive/hive-3.1.3/apache-hive-3.1.3-bin.tar.gz"
         echo -e "${BLUE}->${NC}  Downloading Hive from archive..."
         
-        if wget --progress=bar:force --timeout=60 --tries=2 --connect-timeout=30 -O "apache-hive-${HIVE_VERSION}-bin.tar.gz" "$HIVE_URL"; then
-             echo -e "${GREEN}[OK]${NC} Download successful!"
+        if curl -L -o "apache-hive-${HIVE_VERSION}-bin.tar.gz" "$HIVE_URL"; then
+             echo -e "${GREEN}[OK]${NC} Download successful (curl)!"
         else
-             warn "Primary link failed, trying mirrors..."
-             download_with_retry \
-                "https://dlcdn.apache.org/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz" \
-                "apache-hive-${HIVE_VERSION}-bin.tar.gz"
+             warn "Primary curl failed, trying wget..."
+             if wget --progress=bar:force --timeout=30 --tries=2 --connect-timeout=30 -O "apache-hive-${HIVE_VERSION}-bin.tar.gz" "$HIVE_URL"; then
+                  echo -e "${GREEN}[OK]${NC} Download successful!"
+             else
+                  warn "Primary link (wget) failed, trying mirrors..."
+                  download_with_retry \
+                    "https://dlcdn.apache.org/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz" \
+                    "apache-hive-${HIVE_VERSION}-bin.tar.gz"
+             fi
         fi
         
         log "Extracting Hive..."
