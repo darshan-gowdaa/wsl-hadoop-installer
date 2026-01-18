@@ -31,6 +31,54 @@ Everything installs inside:
 
 ---
 
+## Prerequisites (Do This Once)
+
+### 1) Enable WSL2 on Windows
+
+Run **PowerShell as Administrator**:
+
+```powershell
+wsl --install
+```
+
+Restart when asked.
+
+Docs: [https://learn.microsoft.com/windows/wsl/install](https://learn.microsoft.com/windows/wsl/install)
+
+---
+
+### 2) Install Ubuntu from Microsoft Store
+
+* Open Microsoft Store
+* Search **Ubuntu 22.04 LTS** or **Ubuntu 24.04 LTS**
+* Install → Open → set username & password
+
+Store page: [https://apps.microsoft.com/search?query=ubuntu](https://apps.microsoft.com/search?query=ubuntu)
+
+---
+
+### 3) Check WSL Version (Must be WSL2)
+
+```powershell
+wsl -l -v
+```
+
+If Ubuntu shows **WSL 1**, convert:
+
+```powershell
+wsl --set-version Ubuntu 2
+```
+
+---
+
+### 4) Update Ubuntu (One Time)
+
+```bash
+sudo apt update && sudo apt upgrade -y
+```
+
+---
+
 ## Important: WSL Memory Setup
 
 Create this file in **Windows**:
