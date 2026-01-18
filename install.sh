@@ -208,7 +208,10 @@ download_with_retry() {
     local retries=3
     
     for i in $(seq 1 $retries); do
-        if wget -q --show-progress --timeout=30 -O "$output" "$url"; then
+        # Remove corrupted file before retry
+        rm -f "$output"
+        
+        if wget -c --timeout=60 --tries=2 -O "$output" "$url"; then
             if tar -tzf "$output" >/dev/null 2>&1 || file "$output" | grep -q "gzip compressed"; then
                 log "Downloaded and verified: $output"
                 return 0
@@ -218,12 +221,25 @@ download_with_retry() {
             fi
         else
             warn "Download failed, retrying... ($i/$retries)"
+            rm -f "$output"
         fi
-        sleep 2
+        sleep 3
     done
     
-    error "Failed to download $url after $retries attempts"
+    # Try archive.apache.org as fallback
+    log "Trying archive mirror..."
+    local archive_url="${url/dlcdn.apache.org/archive.apache.org\/dist}"
+    rm -f "$output"
+    if wget -c --timeout=60 -O "$output" "$archive_url"; then
+        if tar -tzf "$output" >/dev/null 2>&1; then
+            log "Downloaded from archive mirror: $output"
+            return 0
+        fi
+    fi
+    
+    error "Failed to download $url after $retries attempts and archive fallback"
 }
+
 
 # === System Setup ===
 setup_system() {
@@ -504,15 +520,19 @@ install_spark() {
     
     cd "$INSTALL_DIR"
     
-    if [ ! -f "spark-${SPARK_VERSION}-bin-hadoop3.tgz" ]; then
+    # Remove any corrupted partial downloads
+    rm -f "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
+    
+    if [ ! -d "spark-${SPARK_VERSION}-bin-hadoop3" ]; then
         log "Downloading Spark ${SPARK_VERSION}..."
         download_with_retry \
             "https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
             "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
+        
+        log "Extracting Spark..."
+        tar -xzf "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
     fi
     
-    log "Extracting Spark..."
-    tar -xzf "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
     rm -f spark
     ln -s "spark-${SPARK_VERSION}-bin-hadoop3" spark
     
@@ -537,6 +557,7 @@ EOF
     mark_done "spark_install"
     log "Spark installed successfully"
 }
+
 
 # === Kafka Installation (KRaft mode) ===
 install_kafka() {
