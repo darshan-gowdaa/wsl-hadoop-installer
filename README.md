@@ -71,13 +71,29 @@ wsl --set-version Ubuntu 2
 
 ---
 
-### 4) Update Ubuntu (One Time)
+## 4) Update Ubuntu (One Time)
 
+### Before running commands (important)
+
+#### Open PowerShell as Administrator
+- Press **Win + X → A**  
+  *(or search **PowerShell**, right-click → Run as administrator)*
+- From the PowerShell window, launch **Ubuntu**
+
+#### Enable easy paste in PowerShell
+1. **Left-click the top bar** of the PowerShell window  
+2. Click **Properties**
+3. Enable **Use Ctrl+Shift+V as Paste**
+4. Click **OK**
+
+**Paste shortcut:** `Ctrl + Shift + V`
+
+---
+
+### Run inside Ubuntu
 ```bash
 sudo apt update && sudo apt upgrade -y
 ```
-
----
 
 ## Important: WSL Memory Setup
 
