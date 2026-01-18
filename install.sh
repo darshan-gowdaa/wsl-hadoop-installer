@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WSL Hadoop Ecosystem Installation Script -
+# WSL Hadoop Ecosystem Installation Script!
 # Purpose: Student learning environment for Hadoop ecosystem
 # Installs: Hadoop, YARN, Spark, Kafka (KRaft), Pig
 
@@ -1004,6 +1004,8 @@ format_hdfs() {
     
     step_header 9 10 "HDFS Initialization"
     
+    export HADOOP_HOME="${HADOOP_HOME:-$INSTALL_DIR/hadoop}"
+    
     log "Testing SSH connectivity..."
     (ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 localhost exit) &
     spinner $! "Testing SSH"
@@ -1158,6 +1160,10 @@ RESTARTSCRIPT
 # === Start Services with Progress ===
 start_services() {
     step_header 10 10 "Starting Services"
+
+    export HADOOP_HOME="${HADOOP_HOME:-$INSTALL_DIR/hadoop}"
+    export HADOOP_CONF_DIR="${HADOOP_CONF_DIR:-$HADOOP_HOME/etc/hadoop}"
+    export KAFKA_HOME="${KAFKA_HOME:-$INSTALL_DIR/kafka}"
     
     log "Stopping any existing services..."
     (safe_exec "$HADOOP_HOME/sbin/stop-dfs.sh" 2>/dev/null
@@ -1186,16 +1192,54 @@ start_services() {
         progress_bar $i $max_wait "Waiting for safe mode"
         sleep 1
     done
-    
+
+    if [ "$safemode_exited" = false ]; then
+    warn "HDFS safe mode timeout after ${max_wait}s - forcing exit"
+    "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode leave 2>/dev/null || true
+    sleep 2
+    fi
+
     log "Creating Spark directory..."
-    (safe_exec "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /spark-logs
-     safe_exec "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs) &
+    # Wait a bit to ensure HDFS is fully ready
+    sleep 2
+    
+    # Try to create directory with retries
+    local retries=3
+    for attempt in $(seq 1 $retries); do
+        if "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /spark-logs 2>/dev/null; then
+            "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs 2>/dev/null || true
+            break
+        else
+            if [ $attempt -lt $retries ]; then
+                sleep 2
+            else
+                warn "Failed to create /spark-logs directory - will retry on next start"
+            fi
+        fi
+    done
+} &
     spinner $! "Setting up HDFS directories"
     
     log "Starting Kafka..."
-    (nohup "$KAFKA_HOME/bin/kafka-server-start-java17.sh" "$KAFKA_HOME/config/kraft-server.properties" \
+    {
+    # FIX: Ensure Java 17 is set for Kafka
+    if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
+        export JAVA_17_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+    fi
+    
+    nohup "$KAFKA_HOME/bin/kafka-server-start-java17.sh" \
+        "$KAFKA_HOME/config/kraft-server.properties" \
         > "$INSTALL_DIR/kafka/kafka.log" 2>&1 &
-     echo $! > "$INSTALL_DIR/kafka/kafka.pid") &
+    
+    local kafka_pid=$!
+    echo $kafka_pid > "$INSTALL_DIR/kafka/kafka.pid"
+    
+    # Wait and verify Kafka started
+    sleep 3
+    if ! kill -0 $kafka_pid 2>/dev/null; then
+        warn "Kafka failed to start - check $INSTALL_DIR/kafka/kafka.log"
+    fi
+} &
     spinner $! "Starting Kafka broker"
     sleep 3
     
@@ -1206,6 +1250,9 @@ start_services() {
 verify_installation() {
     echo ""
     step_header "Final" "Final" "Installation Verification"
+
+    export HADOOP_HOME="${HADOOP_HOME:-$INSTALL_DIR/hadoop}"
+    export HADOOP_CONF_DIR="${HADOOP_CONF_DIR:-$HADOOP_HOME/etc/hadoop}"
     
     echo -e "${BOLD}Running Processes:${NC}"
     jps 2>/dev/null || warn "jps failed"
