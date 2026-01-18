@@ -392,78 +392,104 @@ export YARN_RESOURCEMANAGER_USER="$USER"
 export YARN_NODEMANAGER_USER="$USER"
 EOF
     
-    # core-site.xml (properly quoted)
-    cat > "$HADOOP_CONF_DIR/core-site.xml" <<EOF
+    # core-site.xml
+    cat > "$HADOOP_CONF_DIR/core-site.xml" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
 <configuration>
     <property>
         <name>fs.defaultFS</name>
         <value>hdfs://localhost:9000</value>
+        <description>The default file system URI</description>
     </property>
     <property>
         <name>hadoop.tmp.dir</name>
-        <value>${INSTALL_DIR}/hadoop/tmp</value>
+        <value>file:///home/USER_PLACEHOLDER/bigdata/hadoop/tmp</value>
+        <description>Parent directory for other temporary directories</description>
     </property>
     <property>
         <name>hadoop.http.staticuser.user</name>
-        <value>$USER</value>
+        <value>USER_PLACEHOLDER</value>
     </property>
 </configuration>
 EOF
+    # Replace placeholders
+    sed -i "s|USER_PLACEHOLDER|$USER|g" "$HADOOP_CONF_DIR/core-site.xml"
     
     # hdfs-site.xml
     mkdir -p "$INSTALL_DIR/hadoop/dfs/namenode" "$INSTALL_DIR/hadoop/dfs/datanode" "$INSTALL_DIR/hadoop/tmp"
-    cat > "$HADOOP_CONF_DIR/hdfs-site.xml" <<EOF
+    cat > "$HADOOP_CONF_DIR/hdfs-site.xml" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
 <configuration>
     <property>
         <name>dfs.replication</name>
         <value>1</value>
+        <description>Default block replication for pseudo-distributed mode</description>
     </property>
     <property>
         <name>dfs.namenode.name.dir</name>
-        <value>file://${INSTALL_DIR}/hadoop/dfs/namenode</value>
+        <value>file:///home/USER_PLACEHOLDER/bigdata/hadoop/dfs/namenode</value>
+        <description>Path on the local filesystem where the NameNode stores namespace and transactions logs</description>
     </property>
     <property>
         <name>dfs.datanode.data.dir</name>
-        <value>file://${INSTALL_DIR}/hadoop/dfs/datanode</value>
+        <value>file:///home/USER_PLACEHOLDER/bigdata/hadoop/dfs/datanode</value>
+        <description>Comma separated list of paths on local filesystem of a DataNode</description>
     </property>
     <property>
         <name>dfs.namenode.http-address</name>
         <value>localhost:9870</value>
+        <description>NameNode web UI address</description>
+    </property>
+    <property>
+        <name>dfs.permissions.enabled</name>
+        <value>false</value>
+        <description>Disable permission checking for learning environment</description>
     </property>
 </configuration>
 EOF
+    # Replace placeholders
+    sed -i "s|USER_PLACEHOLDER|$USER|g" "$HADOOP_CONF_DIR/hdfs-site.xml"
     
-    # mapred-site.xml (fixed variable expansion)
-    cat > "$HADOOP_CONF_DIR/mapred-site.xml" <<EOF
+    # mapred-site.xml - Use actual paths, not shell variables
+    cat > "$HADOOP_CONF_DIR/mapred-site.xml" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
 <configuration>
     <property>
         <name>mapreduce.framework.name</name>
         <value>yarn</value>
+        <description>Execution framework set to Hadoop YARN</description>
     </property>
     <property>
         <name>mapreduce.application.classpath</name>
-        <value>${HADOOP_HOME}/share/hadoop/mapreduce/*:${HADOOP_HOME}/share/hadoop/mapreduce/lib/*</value>
+        <value>$HADOOP_MAPRED_HOME/share/hadoop/mapreduce/*:$HADOOP_MAPRED_HOME/share/hadoop/mapreduce/lib/*</value>
     </property>
     <property>
         <name>yarn.app.mapreduce.am.env</name>
-        <value>HADOOP_MAPRED_HOME=${HADOOP_HOME}</value>
+        <value>HADOOP_MAPRED_HOME=/home/USER_PLACEHOLDER/bigdata/hadoop</value>
     </property>
     <property>
         <name>mapreduce.map.env</name>
-        <value>HADOOP_MAPRED_HOME=${HADOOP_HOME}</value>
+        <value>HADOOP_MAPRED_HOME=/home/USER_PLACEHOLDER/bigdata/hadoop</value>
     </property>
     <property>
         <name>mapreduce.reduce.env</name>
-        <value>HADOOP_MAPRED_HOME=${HADOOP_HOME}</value>
+        <value>HADOOP_MAPRED_HOME=/home/USER_PLACEHOLDER/bigdata/hadoop</value>
+    </property>
+    <property>
+        <name>mapreduce.map.memory.mb</name>
+        <value>1024</value>
+    </property>
+    <property>
+        <name>mapreduce.reduce.memory.mb</name>
+        <value>1024</value>
     </property>
 </configuration>
 EOF
+    # Replace placeholders
+    sed -i "s|USER_PLACEHOLDER|$USER|g" "$HADOOP_CONF_DIR/mapred-site.xml"
     
     # yarn-site.xml
     cat > "$HADOOP_CONF_DIR/yarn-site.xml" <<EOF
@@ -472,6 +498,7 @@ EOF
     <property>
         <name>yarn.nodemanager.aux-services</name>
         <value>mapreduce_shuffle</value>
+        <description>Shuffle service for MapReduce</description>
     </property>
     <property>
         <name>yarn.nodemanager.aux-services.mapreduce.shuffle.class</name>
@@ -482,8 +509,14 @@ EOF
         <value>localhost</value>
     </property>
     <property>
+        <name>yarn.resourcemanager.webapp.address</name>
+        <value>localhost:8088</value>
+        <description>ResourceManager web UI address</description>
+    </property>
+    <property>
         <name>yarn.nodemanager.resource.memory-mb</name>
         <value>${YARN_MEM}</value>
+        <description>Total memory available to NodeManager</description>
     </property>
     <property>
         <name>yarn.scheduler.maximum-allocation-mb</name>
@@ -496,6 +529,7 @@ EOF
     <property>
         <name>yarn.nodemanager.vmem-check-enabled</name>
         <value>false</value>
+        <description>Disable virtual memory checking for WSL compatibility</description>
     </property>
     <property>
         <name>yarn.app.mapreduce.am.resource.mb</name>
