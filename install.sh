@@ -129,11 +129,11 @@ safe_exec() {
 # === Pre-flight Checks ===
 preflight_checks() {
     echo ""
-    echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║                                                                                              ║${NC}"
-    echo -e "${GREEN}║       ${BOLD}Hadoop Ecosystem Installer by github.com/darshan-gowdaa${NC}${GREEN}            ║${NC}"
-    echo -e "${GREEN}║                                                                                              ║${NC}"
-    echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                                                       ║${NC}"
+    echo -e "${GREEN}║       ${BOLD}Hadoop Ecosystem Installer v3.0${NC}${GREEN}            ║${NC}"
+    echo -e "${GREEN}║                                                       ║${NC}"
+    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
     echo ""
     
     # Validate required commands
@@ -452,12 +452,42 @@ setup_java() {
     
     step_header 2 10 "Java Configuration"
     
-    local java_home
-    (java_home=$(update-alternatives --query java | grep 'Value:' | cut -d' ' -f2 | sed 's|/bin/java||')) &
-    spinner $! "Detecting JAVA_HOME"
+    log "Detecting JAVA_HOME..."
     
-    if [ ! -d "$java_home" ]; then
-        error "JAVA_HOME detection failed: $java_home"
+    # Create a temp file for the result
+    local temp_file="/tmp/java_home_$"
+    
+    # Detect JAVA_HOME with spinner
+    {
+        local detected_path=""
+        if command -v update-alternatives >/dev/null 2>&1; then
+            detected_path=$(update-alternatives --query java 2>/dev/null | grep 'Value:' | cut -d' ' -f2 | sed 's|/bin/java||')
+        fi
+        
+        # Fallback method
+        if [ -z "$detected_path" ] || [ ! -d "$detected_path" ]; then
+            if command -v java >/dev/null 2>&1; then
+                local java_bin=$(which java)
+                detected_path=$(dirname "$(dirname "$(readlink -f "$java_bin")")")
+            fi
+        fi
+        
+        echo "$detected_path" > "$temp_file"
+    } &
+    
+    local detect_pid=$!
+    spinner $detect_pid "Detecting JAVA_HOME"
+    
+    # Read the result
+    local java_home=""
+    if [ -f "$temp_file" ]; then
+        java_home=$(cat "$temp_file")
+        rm -f "$temp_file"
+    fi
+    
+    if [ -z "$java_home" ] || [ ! -d "$java_home" ]; then
+        error "JAVA_HOME detection failed. Please install OpenJDK 11:
+    sudo apt-get install -y openjdk-11-jdk"
     fi
     
     export JAVA_HOME="$java_home"
