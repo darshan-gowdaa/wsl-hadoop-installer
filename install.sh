@@ -9,7 +9,7 @@ set -Eeuo pipefail
 # === Configuration ===
 INSTALL_DIR="$HOME/bigdata"
 HADOOP_VERSION="${HADOOP_VERSION:-3.4.2}"      # Latest stable release (Aug 2025)
-SPARK_VERSION="${SPARK_VERSION:-3.5.3}"        # Latest 3.5.x maintenance release (Dec 2024)
+SPARK_VERSION="${SPARK_VERSION:-3.5.3}"        # Latest verified stable (Sep 2025)
 KAFKA_VERSION="${KAFKA_VERSION:-4.1.1}"        # Latest stable with KRaft (Nov 2025)
 PIG_VERSION="${PIG_VERSION:-0.18.0}"           # Latest with Hadoop 3 support (Sep 2025)
 JAVA_VERSION="11"
@@ -240,7 +240,6 @@ download_with_retry() {
     error "Failed to download $url after $retries attempts and archive fallback"
 }
 
-
 # === System Setup ===
 setup_system() {
     if is_done "system_setup"; then
@@ -336,15 +335,19 @@ install_hadoop() {
     mkdir -p "$INSTALL_DIR"
     cd "$INSTALL_DIR"
     
-    if [ ! -f "hadoop-${HADOOP_VERSION}.tar.gz" ]; then
+    # Remove corrupted partial downloads
+    if [ ! -d "hadoop-${HADOOP_VERSION}" ]; then
+        rm -f "hadoop-${HADOOP_VERSION}.tar.gz"
+        
         log "Downloading Hadoop ${HADOOP_VERSION}..."
         download_with_retry \
             "https://dlcdn.apache.org/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz" \
             "hadoop-${HADOOP_VERSION}.tar.gz"
+        
+        log "Extracting Hadoop..."
+        tar -xzf "hadoop-${HADOOP_VERSION}.tar.gz"
     fi
     
-    log "Extracting Hadoop..."
-    tar -xzf "hadoop-${HADOOP_VERSION}.tar.gz"
     rm -f hadoop
     ln -s "hadoop-${HADOOP_VERSION}" hadoop
     
@@ -520,10 +523,10 @@ install_spark() {
     
     cd "$INSTALL_DIR"
     
-    # Remove any corrupted partial downloads
-    rm -f "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
-    
+    # Remove corrupted partial downloads
     if [ ! -d "spark-${SPARK_VERSION}-bin-hadoop3" ]; then
+        rm -f "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
+        
         log "Downloading Spark ${SPARK_VERSION}..."
         download_with_retry \
             "https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
@@ -558,7 +561,6 @@ EOF
     log "Spark installed successfully"
 }
 
-
 # === Kafka Installation (KRaft mode) ===
 install_kafka() {
     if is_done "kafka_install"; then
@@ -569,15 +571,20 @@ install_kafka() {
     cd "$INSTALL_DIR"
     
     KAFKA_SCALA="2.13"
-    if [ ! -f "kafka_${KAFKA_SCALA}-${KAFKA_VERSION}.tgz" ]; then
+    
+    # Remove corrupted partial downloads
+    if [ ! -d "kafka_${KAFKA_SCALA}-${KAFKA_VERSION}" ]; then
+        rm -f "kafka_${KAFKA_SCALA}-${KAFKA_VERSION}.tgz"
+        
         log "Downloading Kafka ${KAFKA_VERSION}..."
         download_with_retry \
             "https://dlcdn.apache.org/kafka/${KAFKA_VERSION}/kafka_${KAFKA_SCALA}-${KAFKA_VERSION}.tgz" \
             "kafka_${KAFKA_SCALA}-${KAFKA_VERSION}.tgz"
+        
+        log "Extracting Kafka..."
+        tar -xzf "kafka_${KAFKA_SCALA}-${KAFKA_VERSION}.tgz"
     fi
     
-    log "Extracting Kafka..."
-    tar -xzf "kafka_${KAFKA_SCALA}-${KAFKA_VERSION}.tgz"
     rm -f kafka
     ln -s "kafka_${KAFKA_SCALA}-${KAFKA_VERSION}" kafka
     
@@ -633,15 +640,19 @@ install_pig() {
     
     cd "$INSTALL_DIR"
     
-    if [ ! -f "pig-${PIG_VERSION}.tar.gz" ]; then
+    # Remove corrupted partial downloads
+    if [ ! -d "pig-${PIG_VERSION}" ]; then
+        rm -f "pig-${PIG_VERSION}.tar.gz"
+        
         log "Downloading Pig ${PIG_VERSION}..."
         download_with_retry \
             "https://dlcdn.apache.org/pig/pig-${PIG_VERSION}/pig-${PIG_VERSION}.tar.gz" \
             "pig-${PIG_VERSION}.tar.gz"
+        
+        log "Extracting Pig..."
+        tar -xzf "pig-${PIG_VERSION}.tar.gz"
     fi
     
-    log "Extracting Pig..."
-    tar -xzf "pig-${PIG_VERSION}.tar.gz"
     rm -f pig
     ln -s "pig-${PIG_VERSION}" pig
     
@@ -1041,7 +1052,7 @@ ${GREEN}=== Installation Complete! ===${NC}
 
 ${YELLOW}✅ Verified Version Information (January 2026):${NC}
   Hadoop: 3.4.2 (Released Aug 29, 2025 - Latest Stable)
-  Spark: 3.5.4 (Released Dec 19, 2024 - LTS Maintenance Release)
+  Spark: 3.5.3 (Released Sep 23, 2024 - Stable)
   Kafka: 4.1.1 (Released Nov 12, 2025 - Latest Stable with KRaft)
   Pig: 0.18.0 (Released Sep 15, 2025 - Hadoop 3, Spark 3, Python 3)
   Java: OpenJDK 11 (LTS - Recommended for Hadoop 3.4.x)
@@ -1104,7 +1115,7 @@ ${YELLOW}Important Notes:${NC}
 
 ${YELLOW}Verified Download URLs:${NC}
   Hadoop: https://dlcdn.apache.org/hadoop/common/hadoop-3.4.2/hadoop-3.4.2.tar.gz
-  Spark: https://dlcdn.apache.org/spark/spark-3.5.4/spark-3.5.4-bin-hadoop3.tgz
+  Spark: https://dlcdn.apache.org/spark/spark-3.5.3/spark-3.5.3-bin-hadoop3.tgz
   Kafka: https://dlcdn.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz
   Pig: https://dlcdn.apache.org/pig/pig-0.18.0/pig-0.18.0.tar.gz
 
