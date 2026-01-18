@@ -1008,18 +1008,45 @@ setup_environment() {
     fi
     
     if ! grep -q "HADOOP_HOME" "$HOME/.bashrc"; then
-        log "Adding environment variables to .bashrc..."
-        cat >> "$HOME/.bashrc" <<EOF
+    log "Adding environment variables to .bashrc..."
+    cat >> "$HOME/.bashrc" <<'EOF'
 
 # Hadoop Ecosystem Environment
-export HADOOP_HOME=$INSTALL_DIR/hadoop
-export HADOOP_CONF_DIR=\$HADOOP_HOME/etc/hadoop
-export SPARK_HOME=$INSTALL_DIR/spark
-export KAFKA_HOME=$INSTALL_DIR/kafka
-export PIG_HOME=$INSTALL_DIR/pig
-export PATH=\$HADOOP_HOME/bin:\$HADOOP_HOME/sbin:\$SPARK_HOME/bin:\$KAFKA_HOME/bin:\$PIG_HOME/bin:\$PATH
+export HADOOP_HOME=$HOME/bigdata/hadoop
+export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
+export SPARK_HOME=$HOME/bigdata/spark
+export KAFKA_HOME=$HOME/bigdata/kafka
+export PIG_HOME=$HOME/bigdata/pig
+export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$PIG_HOME/bin:$PATH
+
+# Kafka Java 17 wrapper functions (Kafka 4.x requires Java 17)
+kafka-topics() {
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 $KAFKA_HOME/bin/kafka-topics.sh "$@"
+}
+
+kafka-console-producer() {
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 $KAFKA_HOME/bin/kafka-console-producer.sh "$@"
+}
+
+kafka-console-consumer() {
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 $KAFKA_HOME/bin/kafka-console-consumer.sh "$@"
+}
+
+kafka-server-start() {
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 $KAFKA_HOME/bin/kafka-server-start.sh "$@"
+}
+
+kafka-server-stop() {
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 $KAFKA_HOME/bin/kafka-server-stop.sh "$@"
+}
+
+export -f kafka-topics 2>/dev/null || true
+export -f kafka-console-producer 2>/dev/null || true
+export -f kafka-console-consumer 2>/dev/null || true
+export -f kafka-server-start 2>/dev/null || true
+export -f kafka-server-stop 2>/dev/null || true
 EOF
-    fi
+fi
     
     mark_done "env_setup"
     echo -e "${GREEN}✓ Environment configured${NC}"
@@ -1089,6 +1116,13 @@ if ! jps 2>/dev/null | grep -q "ResourceManager"; then
     sleep 5
 else
     echo "YARN already running"
+fi
+
+# Create user directory if it doesn't exist
+if ! "\$INSTALL_DIR/hadoop/bin/hdfs" dfs -test -d /user/\$USER 2>/dev/null; then
+    echo "Creating HDFS user directory..."
+    "\$INSTALL_DIR/hadoop/bin/hdfs" dfs -mkdir -p /user/\$USER 2>/dev/null || true
+    "\$INSTALL_DIR/hadoop/bin/hdfs" dfs -chmod 755 /user/\$USER 2>/dev/null || true
 fi
 
 # Start Kafka
@@ -1246,6 +1280,24 @@ start_services() {
                 sleep 2
             else
                 warn "Failed to create /spark-logs directory - will retry on next start"
+            fi
+        fi
+    done
+
+    log "Creating user HDFS directory..."
+    sleep 1
+    
+    # Create user directory in HDFS
+    for attempt in $(seq 1 3); do
+        if "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/$USER 2>/dev/null; then
+            "$HADOOP_HOME/bin/hdfs" dfs -chmod 755 /user/$USER 2>/dev/null || true
+            echo -e "${GREEN}✓${NC} User directory /user/$USER created"
+            break
+        else
+            if [ $attempt -lt 3 ]; then
+                sleep 2
+            else
+                warn "Failed to create /user/$USER directory - create manually with: hdfs dfs -mkdir -p /user/$USER"
             fi
         fi
     done
