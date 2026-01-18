@@ -84,7 +84,7 @@ sudo apt update && sudo apt upgrade -y
 Create this file in **Windows**:
 
 ```
-C:\Users\<YourWindowsName>\.wslconfig
+C:\Users\<YOUR_WINDOWS_USERNAME>\.wslconfig
 ```
 
 Add:
@@ -149,32 +149,6 @@ You should see NameNode, DataNode, ResourceManager, NodeManager.
 ~/stop-hadoop.sh     # stop all
 ~/check-hadoop.sh    # status
 ```
-
----
-
-## Basic Practice Commands
-
-### HDFS
-
-```bash
-echo "hello" > test.txt
-hdfs dfs -put test.txt /user/$USER/
-hdfs dfs -cat /user/$USER/test.txt
-```
-
-### Spark
-
-```bash
-spark-shell --master yarn
-```
-
-### Kafka
-
-```bash
-kafka-topics.sh --create --topic test --bootstrap-server localhost:9092
-echo "hi" | kafka-console-producer.sh --topic test --bootstrap-server localhost:9092
-```
-
 ---
 
 ## Common Problems & Fixes
