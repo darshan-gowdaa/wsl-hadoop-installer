@@ -761,12 +761,14 @@ install_kafka() {
     
     step_header 6 10 "Kafka ${KAFKA_VERSION} Installation"
     
-    # SET JAVA_17_HOME BEFORE USING IT
+    # ===== FIX 1: SET JAVA_17_HOME IMMEDIATELY =====
     if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
         export JAVA_17_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
     else
-        error "Java 17 not found! Cannot install Kafka."
+        error "Java 17 not found! Cannot install Kafka. Install with: sudo apt-get install -y openjdk-17-jdk"
     fi
+    
+    log "Using Java 17 for Kafka: $JAVA_17_HOME"
     
     cd "$INSTALL_DIR"
     local kafka_scala="2.13"
@@ -793,7 +795,7 @@ install_kafka() {
         kafka_cluster_id=$(cat "$INSTALL_DIR/kafka/.cluster-id")
         log "Using existing Kafka cluster ID: $kafka_cluster_id"
     else
-        # Use Java 17 for kafka-storage.sh
+        # ===== FIX 2: USE JAVA_17_HOME WHEN GENERATING CLUSTER ID =====
         kafka_cluster_id=$(JAVA_HOME="$JAVA_17_HOME" "$INSTALL_DIR/kafka/bin/kafka-storage.sh" random-uuid)
         echo "$kafka_cluster_id" > "$INSTALL_DIR/kafka/.cluster-id"
         log "Generated new Kafka cluster ID: $kafka_cluster_id"
@@ -826,10 +828,9 @@ EOF
     if [ ! -f "$INSTALL_DIR/kafka/kraft-logs/meta.properties" ]; then
         log "Formatting Kafka storage with Java 17..."
         
-        # Use Java 17 for Kafka
-        (JAVA_HOME="$JAVA_17_HOME" "$INSTALL_DIR/kafka/bin/kafka-storage.sh" format -t "$kafka_cluster_id" \
-            -c "$INSTALL_DIR/kafka/config/kraft-server.properties") &
-        spinner $! "Formatting Kafka storage (using Java 17)"
+        # ===== FIX 3: USE JAVA_17_HOME WHEN FORMATTING =====
+        JAVA_HOME="$JAVA_17_HOME" "$INSTALL_DIR/kafka/bin/kafka-storage.sh" format -t "$kafka_cluster_id" \
+            -c "$INSTALL_DIR/kafka/config/kraft-server.properties"
     else
         log "Kafka storage already formatted, skipping..."
     fi
@@ -861,6 +862,9 @@ KAFKAWRAPPER
     mark_done "kafka_install"
     echo -e "${GREEN}✓ Kafka installed successfully${NC}"
 }
+
+
+
 # === Pig Installation ===
 install_pig() {
     if is_done "pig_install"; then
@@ -1124,7 +1128,7 @@ start_services() {
     spinner $! "Setting up HDFS directories"
     
     log "Starting Kafka..."
-    (nohup "$KAFKA_HOME/bin/kafka-server-start.sh" "$KAFKA_HOME/config/kraft-server.properties" \
+    (nohup "$KAFKA_HOME/bin/kafka-server-start-java17.sh" "$KAFKA_HOME/config/kraft-server.properties" \
         > "$INSTALL_DIR/kafka/kafka.log" 2>&1 &
      echo $! > "$INSTALL_DIR/kafka/kafka.pid") &
     spinner $! "Starting Kafka broker"
