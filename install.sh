@@ -237,8 +237,8 @@ setup_system() {
         error "Failed to update packages"
     fi
     
-    if ! sudo apt-get install -y openjdk-${JAVA_VERSION}-jdk wget curl ssh netcat \
-        vim net-tools rsync tar gzip unzip flock file; then
+    if ! sudo apt-get install -y openjdk-${JAVA_VERSION}-jdk wget curl ssh \
+    netcat-openbsd vim net-tools rsync tar gzip unzip util-linux file; then
         error "Failed to install required packages"
     fi
     
