@@ -1134,14 +1134,14 @@ install_hive() {
         rm -f "apache-hive-${HIVE_VERSION}-bin.tar.gz"
         
         # Hardcoded primary link for Hive
-        local HIVE_URL="https://archive.apache.org/dist/hive/hive-3.1.3/apache-hive-3.1.3-bin.tar.gz"
+        local HIVE_URL="http://archive.apache.org/dist/hive/hive-3.1.3/apache-hive-3.1.3-bin.tar.gz"
         echo -e "${BLUE}->${NC}  Downloading Hive from archive..."
         
-        if curl -L -o "apache-hive-${HIVE_VERSION}-bin.tar.gz" "$HIVE_URL"; then
+        if curl -4 -L --connect-timeout 20 --retry 3 --retry-delay 2 -o "apache-hive-${HIVE_VERSION}-bin.tar.gz" "$HIVE_URL"; then
              echo -e "${GREEN}[OK]${NC} Download successful (curl)!"
         else
              warn "Primary curl failed, trying wget..."
-             if wget --progress=bar:force --timeout=30 --tries=2 --connect-timeout=30 -O "apache-hive-${HIVE_VERSION}-bin.tar.gz" "$HIVE_URL"; then
+             if wget --inet4-only --progress=bar:force --timeout=30 --tries=2 --connect-timeout=30 -O "apache-hive-${HIVE_VERSION}-bin.tar.gz" "$HIVE_URL"; then
                   echo -e "${GREEN}[OK]${NC} Download successful!"
              else
                   warn "Primary link (wget) failed, trying mirrors..."
