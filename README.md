@@ -7,12 +7,12 @@ Made for students so you don’t waste hours fixing Java, SSH, or HDFS issues.
 
 ## What You Get
 
-* Hadoop (HDFS + MapReduce)
-* YARN
-* Spark
-* Kafka (no Zookeeper)
-* Pig
-* Ready-made start/stop/check scripts
+- Hadoop 3.3.6 (HDFS + MapReduce)
+- YARN 3.3.6
+- Spark 3.5.3
+- Kafka 3.6.1 (KRaft mode - no ZooKeeper)
+- Pig 0.17.0
+- Java 11 (auto-installed)
 
 Everything installs inside:
 
@@ -26,7 +26,7 @@ Everything installs inside:
 
 * WSL2 with **Ubuntu 22.04 / 24.04**
 * Windows **16 GB RAM** (8 GB used by WSL)
-* ~20 GB free disk space
+* ~15 GB free disk space
 * Sudo access
 
 ---
@@ -90,8 +90,8 @@ Add this if you have 8GB RAM:
 
 ```ini
 [wsl2]
-memory=8GB
-processors=4
+memory=6GB
+processors=2
 swap=2GB
 ```
 
@@ -167,6 +167,16 @@ You should see NameNode, DataNode, ResourceManager, NodeManager.
 cat ~/hadoop_install.log
 ```
 
+### "Connection refused" on Web UIs
+
+**Windows Firewall blocked Java:**
+1. Open Windows Security → Firewall
+2. "Allow an app through firewall"
+3. Find "Java Platform SE binary"
+4. Check "Private networks"
+
+or just Disable AntiVirus
+
 ### NameNode error (reset HDFS)
 
 ```bash
@@ -215,5 +225,19 @@ Remove Hadoop lines from `~/.bashrc` manually.
 * Not for production or clusters
 
 ---
+
+
+## Tips
+
+- Run `jps` to see what's running anytime
+- Logs are in `~/bigdata/hadoop/logs/` if something breaks
+- Kafka logs: `~/bigdata/kafka/kafka.log`
+- Script creates a tutorial file - check `/user/$USER/` in HDFS
+
+## Known Issues
+
+- Windows Firewall might block Java on first run → allow it
+- Services don't auto-start after WSL reboot → run `~/start-hadoop.sh`
+- Installing from `/mnt/c/` is 10x slower → script will warn you
 
 **Tested on:** WSL2 Ubuntu 22.04 / 24.04, Windows 11
