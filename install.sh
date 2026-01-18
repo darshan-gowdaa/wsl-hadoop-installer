@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# WSL Hadoop Ecosystem Installation Script!!
-# Installs: Hadoop, YARN, Spark, Kafka (KRaft), Pig
+# Author: Darshan Gowda
+# Link: https://darshan-gowdaa.tech
+
+# WSL Hadoop Ecosystem Installation Script
+# Installs: Hadoop, YARN, Spark, Kafka (KRaft), Pig, Hive
 
 set -Eeuo pipefail
 
@@ -709,6 +712,7 @@ install_hadoop() {
             "hadoop-${HADOOP_VERSION}.tar.gz"
         
         log "Extracting Hadoop..."
+        echo -e "${YELLOW}Screen might flicker and Desktop may reload not panic, wait...${NC}"
         (tar -xzf "hadoop-${HADOOP_VERSION}.tar.gz") &
         spinner $! "Extracting Hadoop archive"
     fi
@@ -899,46 +903,17 @@ install_spark() {
         
         local output="spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
         
-        # Download with progress
+        # Download with native wget
         echo -e "${CYAN}Downloading from Apache servers...${NC}"
         
-        if wget --progress=dot:giga --timeout=120 --tries=2 \
-                --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
-                -O "$output" "$SPARK_URL" 2>&1 | \
-                grep --line-buffered "%" | \
-                sed -u 's/\.//g' | \
-                while IFS= read -r line; do
-                    if [[ $line =~ ([0-9]+)% ]]; then
-                        local percent="${BASH_REMATCH[1]}"
-                        local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
-                        local empty=$((PROGRESS_BAR_WIDTH - filled))
-                        
-                        printf "\r${CYAN}[${NC}"
-                        printf "%${filled}s" | tr ' ' '█'
-                        printf "%${empty}s" | tr ' ' '░'
-                        printf "${CYAN}]${NC} ${percent}%%"
-                    fi
-                done; then
-            
-            printf "\n"
-            
-            local file_size
-            file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
-            
-            if [ "$file_size" -lt 1000000 ]; then
-                error "Downloaded file too small. Check your internet connection."
-            fi
-            
-            if ! tar -tzf "$output" >/dev/null 2>&1; then
-                error "Downloaded file is corrupted. Please try again."
-            fi
-            
-            echo -e "${GREEN}[OK]${NC} Downloaded: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
+        if wget --progress=bar:force -O "$output" "$SPARK_URL"; then
+            echo -e "${GREEN}[OK]${NC} Download successful!"
         else
             error "Failed to download Spark. Please check your internet connection."
         fi
         
         log "Extracting Spark..."
+        echo -e "${YELLOW}Screen might flicker and Desktop may reload not panic, wait...${NC}"
         (tar -xzf "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz") &
         spinner $! "Extracting Spark archive"
     fi
@@ -997,6 +972,7 @@ install_kafka() {
             "kafka_${kafka_scala}-${KAFKA_VERSION}.tgz"
         
         log "Extracting Kafka..."
+        echo -e "${YELLOW}Screen might flicker and Desktop may reload not panic, wait...${NC}"
         (tar -xzf "kafka_${kafka_scala}-${KAFKA_VERSION}.tgz") &
         spinner $! "Extracting Kafka archive"
     fi
@@ -1131,6 +1107,7 @@ install_pig() {
         fi
         
         log "Extracting Pig..."
+        echo -e "${YELLOW}Screen might flicker and Desktop may reload not panic, wait...${NC}"
         (tar -xzf "pig-0.17.0.tar.gz") &
         spinner $! "Extracting Pig archive"
     fi
@@ -1156,11 +1133,21 @@ install_hive() {
     if [ ! -d "apache-hive-${HIVE_VERSION}-bin" ]; then
         rm -f "apache-hive-${HIVE_VERSION}-bin.tar.gz"
         
-        download_with_retry \
-            "https://dlcdn.apache.org/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz" \
-            "apache-hive-${HIVE_VERSION}-bin.tar.gz"
+        # Hardcoded primary link for Hive
+        local HIVE_URL="https://archive.apache.org/dist/hive/hive-3.1.3/apache-hive-3.1.3-bin.tar.gz"
+        echo -e "${BLUE}->${NC}  Downloading Hive from archive..."
+        
+        if wget --progress=bar:force -O "apache-hive-${HIVE_VERSION}-bin.tar.gz" "$HIVE_URL"; then
+             echo -e "${GREEN}[OK]${NC} Download successful!"
+        else
+             warn "Primary link failed, trying mirrors..."
+             download_with_retry \
+                "https://dlcdn.apache.org/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz" \
+                "apache-hive-${HIVE_VERSION}-bin.tar.gz"
+        fi
         
         log "Extracting Hive..."
+        echo -e "${YELLOW}Screen might flicker and Desktop may reload not panic, wait...${NC}"
         (tar -xzf "apache-hive-${HIVE_VERSION}-bin.tar.gz") &
         spinner $! "Extracting Hive archive"
     fi
