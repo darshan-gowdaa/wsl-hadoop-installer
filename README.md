@@ -86,8 +86,16 @@ Create this file in **Windows**:
 ```
 C:\Users\<YOUR_WINDOWS_USERNAME>\.wslconfig
 ```
+Add this if you have 8GB RAM:
 
-Add:
+```ini
+[wsl2]
+memory=8GB
+processors=4
+swap=2GB
+```
+
+Add this if you have 16GB RAM:
 
 ```ini
 [wsl2]
