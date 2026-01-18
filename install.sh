@@ -866,7 +866,6 @@ KAFKAWRAPPER
 
 
 # === Pig Installation ===
-# === Pig Installation ===
 install_pig() {
     if is_done "pig_install"; then
         log "Pig already installed, skipping..."
@@ -877,64 +876,18 @@ install_pig() {
     
     cd "$INSTALL_DIR"
     
-    # Use Pig 0.17.0 with direct download
-    local PIG_VERSION_ACTUAL="0.17.0"
-    local PIG_URL="https://archive.apache.org/dist/pig/pig-0.17.0/pig-0.17.0.tar.gz"
-    
-    if [ ! -d "pig-${PIG_VERSION_ACTUAL}" ]; then
-        rm -f "pig-${PIG_VERSION_ACTUAL}.tar.gz"
-        
-        echo -e "${BLUE}⬇${NC}  Downloading: pig-0.17.0.tar.gz"
-        log "Using direct URL: ${PIG_URL}"
-        
-        local output="pig-${PIG_VERSION_ACTUAL}.tar.gz"
-        
-        # Direct download with progress
-        echo -e "${CYAN}Downloading from Apache Archive...${NC}"
-        
-        if wget --progress=dot:giga --timeout=120 --tries=2 \
-                --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
-                -O "$output" "$PIG_URL" 2>&1 | \
-                grep --line-buffered "%" | \
-                sed -u 's/\.//g' | \
-                while IFS= read -r line; do
-                    if [[ $line =~ ([0-9]+)% ]]; then
-                        local percent="${BASH_REMATCH[1]}"
-                        local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
-                        local empty=$((PROGRESS_BAR_WIDTH - filled))
-                        
-                        printf "\r${CYAN}[${NC}"
-                        printf "%${filled}s" | tr ' ' '█'
-                        printf "%${empty}s" | tr ' ' '░'
-                        printf "${CYAN}]${NC} ${percent}%%"
-                    fi
-                done; then
-            
-            printf "\n"
-            
-            local file_size
-            file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
-            
-            if [ "$file_size" -lt 1000000 ]; then
-                error "Downloaded file too small. Check your internet connection."
-            fi
-            
-            if ! tar -tzf "$output" >/dev/null 2>&1; then
-                error "Downloaded file is corrupted. Please try again."
-            fi
-            
-            echo -e "${GREEN}✓${NC} Downloaded: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
-        else
-            error "Failed to download Pig. Please check your internet connection."
-        fi
+    if [ ! -d "pig-0.17.0" ]; then
+        download_with_retry \
+            "https://archive.apache.org/dist/pig/pig-0.17.0/pig-0.17.0.tar.gz" \
+            "pig-0.17.0.tar.gz"
         
         log "Extracting Pig..."
-        (tar -xzf "pig-${PIG_VERSION_ACTUAL}.tar.gz") &
+        (tar -xzf "pig-0.17.0.tar.gz") &
         spinner $! "Extracting Pig archive"
     fi
     
     rm -f pig
-    ln -s "pig-${PIG_VERSION_ACTUAL}" pig
+    ln -s "pig-0.17.0" pig
     
     mark_done "pig_install"
     echo -e "${GREEN}✓ Pig 0.17.0 installed successfully${NC}"
