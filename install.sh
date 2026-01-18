@@ -528,7 +528,7 @@ install_spark() {
         rm -f "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
         
         log "Downloading Spark ${SPARK_VERSION}..."
-        # Use archive.apache.org for Spark (dlcdn doesn't have 3.5.x)
+        # Use archive.apache.org for Spark (dlcdn doesn't have 3.5.2)
         download_with_retry \
             "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
             "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
@@ -633,6 +633,7 @@ EOF
 }
 
 # === Pig Installation ===
+# === Pig Installation ===
 install_pig() {
     if is_done "pig_install"; then
         log "Pig already installed, skipping..."
@@ -646,8 +647,9 @@ install_pig() {
         rm -f "pig-${PIG_VERSION}.tar.gz"
         
         log "Downloading Pig ${PIG_VERSION}..."
+        # Use archive.apache.org for Pig (dlcdn doesn't have 0.18.0)
         download_with_retry \
-            "https://dlcdn.apache.org/pig/pig-${PIG_VERSION}/pig-${PIG_VERSION}.tar.gz" \
+            "https://archive.apache.org/dist/pig/pig-${PIG_VERSION}/pig-${PIG_VERSION}.tar.gz" \
             "pig-${PIG_VERSION}.tar.gz"
         
         log "Extracting Pig..."
