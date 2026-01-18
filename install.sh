@@ -9,7 +9,7 @@ set -Eeuo pipefail
 # === Configuration ===
 INSTALL_DIR="$HOME/bigdata"
 HADOOP_VERSION="${HADOOP_VERSION:-3.4.2}"      # Latest stable release (Aug 2025)
-SPARK_VERSION="${SPARK_VERSION:-3.5.1}"        # Latest verified stable (Sep 2025)
+SPARK_VERSION="${SPARK_VERSION:-3.5.2}"        # Latest verified stable (Sep 2025)
 KAFKA_VERSION="${KAFKA_VERSION:-4.1.1}"        # Latest stable with KRaft (Nov 2025)
 PIG_VERSION="${PIG_VERSION:-0.18.0}"           # Latest with Hadoop 3 support (Sep 2025)
 JAVA_VERSION="11"
@@ -528,8 +528,9 @@ install_spark() {
         rm -f "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
         
         log "Downloading Spark ${SPARK_VERSION}..."
+        # Use archive.apache.org for Spark (dlcdn doesn't have 3.5.x)
         download_with_retry \
-            "https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
+            "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
             "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
         
         log "Extracting Spark..."
