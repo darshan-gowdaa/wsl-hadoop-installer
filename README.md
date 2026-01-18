@@ -84,7 +84,7 @@ sudo apt update && sudo apt upgrade -y
 Create this file in **Windows**:
 
 ```
-C:\Users\YourName\.wslconfig
+C:\Users\<YourWindowsName>\.wslconfig
 ```
 
 Add:
