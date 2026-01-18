@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WSL Hadoop Ecosystem Installation Script
+# WSL Hadoop Ecosystem Installation Script!!
 # Installs: Hadoop, YARN, Spark, Kafka (KRaft), Pig
 
 set -Eeuo pipefail
@@ -133,7 +133,7 @@ preflight_checks() {
     echo ""
     echo -e "${GREEN}╔════════════════════════════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║                                                                                        ║${NC}"
-    echo -e "${GREEN}║       ${BOLD}Hadoop WSL Installer by github.com/darshan-gowdaa${NC}${GREEN}            ║${NC}"
+    echo -e "${GREEN}║       ${BOLD}Hadoop WSL Installer by github.com/darshan-gowdaa${NC}${GREEN}                        ║${NC}"
     echo -e "${GREEN}║                                                                                        ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -161,46 +161,68 @@ preflight_checks() {
 Install with: sudo apt-get install -y ${missing_cmds[*]}"
     fi
     
+    echo ""
+    
     # Check filesystem location
     local real_path
     real_path=$(readlink -f "$PWD")
     if [[ "$real_path" == /mnt/* ]] || [[ "$real_path" == *"/mnt/"* ]]; then
-        error "⚠️  You're in Windows filesystem ($real_path)
-        
-Hadoop will be 10-20x SLOWER here!
-
-Fix: cd to Linux home:
-  cd ~
-  bash ./$(basename "$0")"
+        echo -e "${RED}╔════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${RED}║  ⚠️  WARNING: You're in Windows filesystem!                           ║${NC}"
+        echo -e "${RED}╚════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "  Current location: ${YELLOW}$real_path${NC}"
+        echo -e "  ${RED}Hadoop will be 10-20x SLOWER here!${NC}"
+        echo ""
+        echo -e "${GREEN}Fix:${NC} Move to Linux home directory:"
+        echo -e "  ${CYAN}cd ~${NC}"
+        echo -e "  ${CYAN}bash ./$(basename "$0")${NC}"
+        echo ""
+        exit 1
     fi
     
     # Verify WSL
     if ! grep -qi microsoft /proc/version 2>/dev/null; then
-        echo -e "${YELLOW}WARNING:${NC} This script is optimized for WSL."
+        echo -e "${YELLOW}╔════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║  ⚠️  WARNING: Not running on WSL                                      ║${NC}"
+        echo -e "${YELLOW}╚════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo "This script is optimized for Windows Subsystem for Linux (WSL)."
+        echo ""
         
         if [ "$AUTO_YES" = true ]; then
             warn "Auto-continuing in non-interactive mode..."
         else
-            echo -n "Continue anyway? (y/n): "
-            read choice
+            echo -ne "Continue anyway? (y/n): "
+            read -r choice
             [[ "$choice" != "y" ]] && exit 0
         fi
     fi
     
     # Check WSL version
     if ! grep -q "WSL2" /proc/version 2>/dev/null; then
-        warn "You might be on WSL1. Hadoop will be SLOW."
+        echo -e "${YELLOW}╔════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║  ⚠️  WARNING: Detected WSL1                                           ║${NC}"
+        echo -e "${YELLOW}╚════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${RED}Hadoop will be EXTREMELY SLOW on WSL1!${NC}"
+        echo ""
+        echo "Recommended: Upgrade to WSL2 by running in PowerShell (as admin):"
+        echo -e "  ${CYAN}wsl --set-version <distro-name> 2${NC}"
+        echo ""
         
         if [ "$AUTO_YES" = true ]; then
             warn "Auto-continuing in non-interactive mode..."
         else
-            echo -n "Continue anyway? (y/n): "
-            read choice
+            echo -ne "Continue with WSL1 anyway? ${YELLOW}(not recommended)${NC} (y/n): "
+            read -r choice
             [[ "$choice" != "y" ]] && exit 0
         fi
     else
-        log "✓ Running on WSL2"
+        echo -e "${GREEN}✓ Running on WSL2${NC}"
     fi
+    
+    echo ""
     
     # Memory check
     local total_mem_mb
@@ -208,48 +230,71 @@ Fix: cd to Linux home:
     local total_mem_gb=$((total_mem_mb / 1024))
     
     if [ "$total_mem_gb" -lt 6 ]; then
-        warn "WSL has only ${total_mem_gb}GB RAM allocated."
+        echo -e "${YELLOW}╔════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║  ⚠️  WARNING: Low Memory                                              ║${NC}"
+        echo -e "${YELLOW}╚════════════════════════════════════════════════════════════════════════╝${NC}"
         echo ""
-        echo "For Hadoop learning, you need at least 8GB allocated to WSL."
+        echo -e "WSL has only ${RED}${total_mem_gb}GB RAM${NC} allocated."
+        echo ""
+        echo "For Hadoop learning, you need at least ${GREEN}8GB${NC} allocated to WSL."
+        echo ""
+        echo "To increase WSL memory, edit ${CYAN}C:\\Users\\<YourUsername>\\.wslconfig${NC}:"
+        echo -e "${CYAN}[wsl2]${NC}"
+        echo -e "${CYAN}memory=8GB${NC}"
+        echo ""
         
         if [ "$AUTO_YES" = true ]; then
             warn "Auto-continuing with limited memory in non-interactive mode..."
         else
-            echo -n "Continue with limited memory? (not recommended) (y/n): "
-            read choice
+            echo -ne "Continue with limited memory? ${YELLOW}(not recommended)${NC} (y/n): "
+            read -r choice
             [[ "$choice" != "y" ]] && exit 0
         fi
     else
-        log "[OK] WSL has ${total_mem_gb}GB RAM allocated"
+        echo -e "${GREEN}✓ WSL has ${total_mem_gb}GB RAM allocated${NC}"
     fi
+    
+    echo ""
     
     # Sudo test
-    echo ""
-    echo -e "${YELLOW}⚠️  Testing sudo access...${NC}"
+    echo -e "${CYAN}Testing sudo access...${NC}"
     if ! sudo -v; then
-        error "Sudo authentication failed."
+        error "Sudo authentication failed. Please enter your password."
     fi
-    log "✓ Sudo access confirmed"
+    echo -e "${GREEN}✓ Sudo access confirmed${NC}"
+    
+    echo ""
     
     # Firewall warning
+    echo -e "${RED}╔════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${RED}║  !! IMPORTANT: Windows Firewall Action Required !!                     ║${NC}"
+    echo -e "${RED}╚════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "${YELLOW}WARNING - WINDOWS FIREWALL:${NC}"
-    echo "During installation, Windows will show firewall popups:"
-    echo "  - Java Platform SE binary"
-    echo "  - OpenSSH SSH Server"
+    echo "During installation, Windows will show firewall popup dialogs for:"
     echo ""
-    echo "ACTION REQUIRED: Click 'Allow access' on Private networks"
+    echo -e "  ${YELLOW}•${NC} Java Platform SE binary"
+    echo -e "  ${YELLOW}•${NC} OpenSSH SSH Server"
+    echo ""
+    echo -e "${GREEN}ACTION REQUIRED:${NC}"
+    echo -e "  → Click ${GREEN}'Allow access'${NC} on ${CYAN}Private networks${NC}"
+    echo -e "  → Do NOT block these or Hadoop won't work!"
+    echo ""
+    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     
     if [ "$AUTO_YES" = true ]; then
         log "Auto-continuing in 3 seconds..."
         sleep 3
     else
-        echo "Press Ctrl+C to cancel, or Enter to continue..."
+        echo -e "Press ${CYAN}Ctrl+C${NC} to cancel, or ${GREEN}Enter${NC} to continue..."
         read -r
     fi
+    
+    echo ""
+    echo -e "${GREEN}Starting installation...${NC}"
     echo ""
 }
+
 
 # Cleanup handlers
 cleanup_on_exit() {
@@ -265,17 +310,81 @@ trap 'error "Script failed at line $LINENO"' ERR
 
 check_disk_space() {
     local required_gb=10
-    local available_kb
-    available_kb=$(df "$HOME" | awk 'NR==2 {print $4}')
-    local available_gb=$((available_kb / 1024 / 1024))
     
-    log "WSL storage: ${available_gb}GB available"
+    echo ""
+    log "Checking disk space..."
     
-    if [ "$available_gb" -lt "$required_gb" ]; then
-        error "Need ${required_gb}GB free. Have ${available_gb}GB."
+    # Get WSL filesystem space (where files will be installed)
+    local wsl_info
+    wsl_info=$(df -BG "$HOME" | awk 'NR==2 {print $2, $3, $4}')
+    local wsl_total=$(echo "$wsl_info" | awk '{print $1}' | sed 's/G//')
+    local wsl_used=$(echo "$wsl_info" | awk '{print $2}' | sed 's/G//')
+    local wsl_avail=$(echo "$wsl_info" | awk '{print $3}' | sed 's/G//')
+    
+    # Get actual Windows C: drive space (where VHD lives)
+    local c_drive_info
+    if [ -d "/mnt/c" ]; then
+        c_drive_info=$(df -BG /mnt/c 2>/dev/null | awk 'NR==2 {print $2, $3, $4}')
+        local c_total=$(echo "$c_drive_info" | awk '{print $1}' | sed 's/G//')
+        local c_used=$(echo "$c_drive_info" | awk '{print $2}' | sed 's/G//')
+        local c_avail=$(echo "$c_drive_info" | awk '{print $3}' | sed 's/G//')
     fi
-    log "Disk space check passed: ${available_gb}GB available"
+    
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}Disk Space Report:${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${YELLOW}WSL Filesystem (Virtual):${NC}"
+    echo -e "  Total:     ${wsl_total}GB"
+    echo -e "  Used:      ${wsl_used}GB"
+    echo -e "  Available: ${GREEN}${wsl_avail}GB${NC}"
+    echo ""
+    
+    if [ -d "/mnt/c" ]; then
+        echo -e "${YELLOW}Windows C: Drive (Physical):${NC}"
+        echo -e "  Total:     ${c_total}GB"
+        echo -e "  Used:      ${c_used}GB"
+        echo -e "  Available: ${GREEN}${c_avail}GB${NC}"
+        echo ""
+        echo -e "${CYAN}Note:${NC} WSL VHD grows dynamically using C: drive space"
+    fi
+    
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    
+    # Check if we have enough space
+    # In WSL, check both VHD available space AND Windows C: drive space
+    local actual_available=$wsl_avail
+    
+    if [ -d "/mnt/c" ] && [ "$c_avail" -lt "$wsl_avail" ]; then
+        actual_available=$c_avail
+        warn "⚠️  Real available space is limited by Windows C: drive: ${c_avail}GB"
+    fi
+    
+    if [ "$actual_available" -lt "$required_gb" ]; then
+        echo ""
+        echo -e "${RED}╔════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${RED}║  ❌ ERROR: Insufficient Disk Space                                    ║${NC}"
+        echo -e "${RED}╚════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "  Required: ${GREEN}${required_gb}GB${NC}"
+        echo -e "  Available: ${RED}${actual_available}GB${NC}"
+        echo ""
+        echo -e "${YELLOW}Solutions:${NC}"
+        echo -e "  1. Free up space on Windows C: drive"
+        echo -e "  2. Clean up WSL: ${CYAN}sudo apt clean && sudo apt autoremove${NC}"
+        echo -e "  3. Remove unused Docker images/containers if installed"
+        echo ""
+        exit 1
+    fi
+    
+    echo -e "${GREEN}✓ Disk space check passed${NC}"
+    echo -e "  Installation requires: ${required_gb}GB"
+    echo -e "  You have available: ${GREEN}${actual_available}GB${NC}"
+    echo ""
 }
+
 
 acquire_lock() {
     if [ -f "$LOCK_FILE" ]; then
@@ -292,84 +401,133 @@ acquire_lock() {
 }
 
 # Download with progress
+# download_with_retry() {
+#     local url=$1
+#     local output=$2
+#     local retries=3
+    
+#     local filename=$(basename "$url")
+#     local path=$(dirname "$url" | sed 's|https://[^/]*/||')
+    
+#     # Mirrors
+#     local MIRRORS=(
+#         "https://downloads.apache.org/${path}/${filename}"
+#         "https://dlcdn.apache.org/${path}/${filename}"
+#         "https://archive.apache.org/dist/${path}/${filename}"
+#     )
+    
+#     echo -e "${BLUE}⬇${NC}  Downloading: ${filename}"
+    
+#     for mirror in "${MIRRORS[@]}"; do
+#         log "Trying mirror: ${mirror}"
+        
+#         for i in $(seq 1 $retries); do
+#             rm -f "$output"
+            
+#             echo -e "${CYAN}Attempt $i/$retries...${NC}"
+            
+#             if wget --progress=dot:giga --timeout=120 --tries=1 \
+#                     --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
+#                     -O "$output" "$mirror" 2>&1 | \
+#                     grep --line-buffered "%" | \
+#                     sed -u 's/\.//g' | \
+#                     while IFS= read -r line; do
+#                         if [[ $line =~ ([0-9]+)% ]]; then
+#                             local percent="${BASH_REMATCH[1]}"
+#                             local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
+#                             local empty=$((PROGRESS_BAR_WIDTH - filled))
+                            
+#                             printf "\r${CYAN}[${NC}"
+#                             printf "%${filled}s" | tr ' ' '█'
+#                             printf "%${empty}s" | tr ' ' '░'
+#                             printf "${CYAN}]${NC} ${percent}%%"
+#                         fi
+#                     done; then
+                
+#                 printf "\n"
+                
+#                 local file_size
+#                 file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
+                
+#                 # Verify file size
+#                 if [ "$file_size" -lt 1000000 ]; then
+#                     warn "Downloaded file too small ($file_size bytes), retrying..."
+#                     rm -f "$output"
+#                     continue
+#                 fi
+                
+#                 # Verify archive
+#                 if tar -tzf "$output" >/dev/null 2>&1 || file "$output" 2>/dev/null | grep -q "gzip compressed"; then
+#                     echo -e "${GREEN}✓${NC} Downloaded and verified: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
+#                     return 0
+#                 else
+#                     warn "Downloaded file corrupted, retrying..."
+#                     rm -f "$output"
+#                 fi
+#             else
+#                 warn "Download failed, retrying..."
+#                 rm -f "$output"
+#             fi
+            
+#             sleep 3
+#         done
+        
+#         log "Mirror ${mirror} failed after ${retries} attempts, trying next mirror..."
+#         sleep 2
+#     done
+    
+#     error "Failed to download ${filename} after trying all mirrors"
+#     return 1
+# }
+
+
+# Download with progress
 download_with_retry() {
     local url=$1
     local output=$2
-    local retries=3
     
-    local filename=$(basename "$url")
-    local path=$(dirname "$url" | sed 's|https://[^/]*/||')
+    local filename=$(basename "$output")
     
     # Mirrors
     local MIRRORS=(
-        "https://downloads.apache.org/${path}/${filename}"
-        "https://dlcdn.apache.org/${path}/${filename}"
-        "https://archive.apache.org/dist/${path}/${filename}"
+        "$url"
+        "https://dlcdn.apache.org/$(echo $url | sed 's|https://[^/]*/||')"
+        "https://downloads.apache.org/$(echo $url | sed 's|https://[^/]*/||')"
+        "https://archive.apache.org/dist/$(echo $url | sed 's|https://[^/]*/||')"
     )
     
-    echo -e "${BLUE}⬇${NC}  Downloading: ${filename}"
+    local downloaded=false
     
     for mirror in "${MIRRORS[@]}"; do
-        log "Trying mirror: ${mirror}"
+        echo -e "${BLUE}⬇${NC}  Trying: $mirror"
         
-        for i in $(seq 1 $retries); do
-            rm -f "$output"
+        if wget --progress=bar:force --timeout=60 --tries=2 \
+                -O "$output" "$mirror" 2>&1; then
             
-            echo -e "${CYAN}Attempt $i/$retries...${NC}"
-            
-            if wget --progress=dot:giga --timeout=120 --tries=1 \
-                    --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
-                    -O "$output" "$mirror" 2>&1 | \
-                    grep --line-buffered "%" | \
-                    sed -u 's/\.//g' | \
-                    while IFS= read -r line; do
-                        if [[ $line =~ ([0-9]+)% ]]; then
-                            local percent="${BASH_REMATCH[1]}"
-                            local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
-                            local empty=$((PROGRESS_BAR_WIDTH - filled))
-                            
-                            printf "\r${CYAN}[${NC}"
-                            printf "%${filled}s" | tr ' ' '█'
-                            printf "%${empty}s" | tr ' ' '░'
-                            printf "${CYAN}]${NC} ${percent}%%"
-                        fi
-                    done; then
-                
-                printf "\n"
-                
-                local file_size
-                file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
-                
-                # Verify file size
-                if [ "$file_size" -lt 1000000 ]; then
-                    warn "Downloaded file too small ($file_size bytes), retrying..."
-                    rm -f "$output"
-                    continue
-                fi
-                
-                # Verify archive
-                if tar -tzf "$output" >/dev/null 2>&1 || file "$output" 2>/dev/null | grep -q "gzip compressed"; then
-                    echo -e "${GREEN}✓${NC} Downloaded and verified: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
-                    return 0
-                else
-                    warn "Downloaded file corrupted, retrying..."
-                    rm -f "$output"
-                fi
+            # Verify file size
+            if [ -f "$output" ] && [ $(stat -c%s "$output" 2>/dev/null || echo 0) -gt 1000000 ]; then
+                echo -e "${GREEN}✓${NC} Download successful!"
+                downloaded=true
+                break
             else
-                warn "Download failed, retrying..."
+                warn "File too small, trying next mirror..."
                 rm -f "$output"
             fi
-            
-            sleep 3
-        done
+        else
+            warn "Mirror failed, trying next..."
+            rm -f "$output"
+        fi
         
-        log "Mirror ${mirror} failed after ${retries} attempts, trying next mirror..."
         sleep 2
     done
     
-    error "Failed to download ${filename} after trying all mirrors"
-    return 1
+    if [ "$downloaded" = false ]; then
+        error "Failed to download ${filename} from all mirrors."
+    fi
+    
+    return 0
 }
+
 
 # System setup
 setup_system() {
@@ -1009,7 +1167,7 @@ export SPARK_HOME=$HOME/bigdata/spark
 export KAFKA_HOME=$HOME/bigdata/kafka
 export PIG_HOME=$HOME/bigdata/pig
 export JAVA_17_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$PIG_HOME/bin:$PATH
+export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$PIG_HOME/bin:$HOME:$PATH
 
 # Kafka aliases (Kafka 4.x requires Java 17)
 alias kafka-topics='JAVA_HOME=$JAVA_17_HOME $KAFKA_HOME/bin/kafka-topics.sh'
@@ -1023,6 +1181,7 @@ BASHRC_EOF
     mark_done "env_setup"
     echo -e "${GREEN}✓ Environment configured${NC}"
 }
+
 
 # === HDFS Format ===
 format_hdfs() {
