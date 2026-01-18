@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WSL Hadoop Ecosystem Installation Script
+# WSL Hadoop Ecosystem Installation Script_!
 # Purpose: Student learning environment for Hadoop ecosystem
 # Installs: Hadoop, YARN, Spark, Kafka (KRaft), Pig
 
@@ -1248,12 +1248,45 @@ start_services() {
     echo -e "${GREEN}✓ All services started successfully${NC}"
 }
 
+# === Verification ===
+verify_installation() {
+    echo ""
+    step_header "Final" "Final" "Installation Verification"
+
+    export HADOOP_HOME="${HADOOP_HOME:-$INSTALL_DIR/hadoop}"
+    export HADOOP_CONF_DIR="${HADOOP_CONF_DIR:-$HADOOP_HOME/etc/hadoop}"
+    
+    echo -e "${BOLD}Running Processes:${NC}"
+    jps 2>/dev/null || warn "jps failed"
+    echo ""
+    
+    echo -e "${BOLD}Service Health Check:${NC}"
+    local services=("NameNode:9870" "DataNode:9864" "ResourceManager:8088" "NodeManager:8042" "Kafka:9092")
+    for service in "${services[@]}"; do
+        IFS=':' read -r name port <<< "$service"
+        if nc -z localhost "$port" 2>/dev/null; then
+            echo -e "  ${GREEN}✓${NC} $name (port $port)"
+        else
+            echo -e "  ${RED}✗${NC} $name (port $port)"
+        fi
+    done
+    echo ""
+    
+    echo -e "${BOLD}HDFS Status:${NC}"
+    safe_exec "$HADOOP_HOME/bin/hdfs" dfsadmin -report 2>&1 | head -10
+    echo ""
+    
+    echo -e "${BOLD}YARN Status:${NC}"
+    safe_exec "$HADOOP_HOME/bin/yarn" node -list
+    echo ""
+}
+
 # === Final Guide ===
 print_guide() {
     echo ""
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║                                                       ║${NC}"
-    echo -e "${GREEN}║         ${BOLD}Installation Complete!${NC}${GREEN}                    ║${NC}"
+    echo -e "${GREEN}║         ${BOLD}Installation Complete!${NC}${GREEN}    ║${NC}"
     echo -e "${GREEN}║                                                       ║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
     echo ""
