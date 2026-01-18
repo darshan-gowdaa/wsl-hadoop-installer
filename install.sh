@@ -11,7 +11,7 @@ INSTALL_DIR="$HOME/bigdata"
 HADOOP_VERSION="${HADOOP_VERSION:-3.4.2}"
 SPARK_VERSION="${SPARK_VERSION:-3.5.3}"
 KAFKA_VERSION="${KAFKA_VERSION:-4.1.1}"
-PIG_VERSION="${PIG_VERSION:-0.18.0}"
+PIG_VERSION="${PIG_VERSION:-0.17.0}"
 JAVA_11_VERSION="11"
 JAVA_17_VERSION="17"
 
@@ -866,68 +866,78 @@ KAFKAWRAPPER
 
 
 # === Pig Installation ===
+# === Pig Installation ===
 install_pig() {
     if is_done "pig_install"; then
         log "Pig already installed, skipping..."
         return
     fi
     
-    step_header 7 10 "Pig ${PIG_VERSION} Installation"
+    step_header 7 10 "Pig 0.17.0 Installation"
     
     cd "$INSTALL_DIR"
     
-    if [ ! -d "pig-${PIG_VERSION}" ]; then
-        download_with_retry \
-            "https://archive.apache.org/dist/pig/pig-${PIG_VERSION}/pig-${PIG_VERSION}.tar.gz" \
-            "pig-${PIG_VERSION}.tar.gz"
+    # Use Pig 0.17.0 with direct download
+    local PIG_VERSION_ACTUAL="0.17.0"
+    local PIG_URL="https://archive.apache.org/dist/pig/pig-0.17.0/pig-0.17.0.tar.gz"
+    
+    if [ ! -d "pig-${PIG_VERSION_ACTUAL}" ]; then
+        rm -f "pig-${PIG_VERSION_ACTUAL}.tar.gz"
+        
+        echo -e "${BLUE}⬇${NC}  Downloading: pig-0.17.0.tar.gz"
+        log "Using direct URL: ${PIG_URL}"
+        
+        local output="pig-${PIG_VERSION_ACTUAL}.tar.gz"
+        
+        # Direct download with progress
+        echo -e "${CYAN}Downloading from Apache Archive...${NC}"
+        
+        if wget --progress=dot:giga --timeout=120 --tries=2 \
+                --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
+                -O "$output" "$PIG_URL" 2>&1 | \
+                grep --line-buffered "%" | \
+                sed -u 's/\.//g' | \
+                while IFS= read -r line; do
+                    if [[ $line =~ ([0-9]+)% ]]; then
+                        local percent="${BASH_REMATCH[1]}"
+                        local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
+                        local empty=$((PROGRESS_BAR_WIDTH - filled))
+                        
+                        printf "\r${CYAN}[${NC}"
+                        printf "%${filled}s" | tr ' ' '█'
+                        printf "%${empty}s" | tr ' ' '░'
+                        printf "${CYAN}]${NC} ${percent}%%"
+                    fi
+                done; then
+            
+            printf "\n"
+            
+            local file_size
+            file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
+            
+            if [ "$file_size" -lt 1000000 ]; then
+                error "Downloaded file too small. Check your internet connection."
+            fi
+            
+            if ! tar -tzf "$output" >/dev/null 2>&1; then
+                error "Downloaded file is corrupted. Please try again."
+            fi
+            
+            echo -e "${GREEN}✓${NC} Downloaded: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
+        else
+            error "Failed to download Pig. Please check your internet connection."
+        fi
         
         log "Extracting Pig..."
-        (tar -xzf "pig-${PIG_VERSION}.tar.gz") &
+        (tar -xzf "pig-${PIG_VERSION_ACTUAL}.tar.gz") &
         spinner $! "Extracting Pig archive"
     fi
     
     rm -f pig
-    ln -s "pig-${PIG_VERSION}" pig
+    ln -s "pig-${PIG_VERSION_ACTUAL}" pig
     
     mark_done "pig_install"
-    echo -e "${GREEN}✓ Pig installed successfully${NC}"
-}
-
-# === Environment Setup ===
-setup_environment() {
-    if is_done "env_setup"; then
-        log "Environment already configured, skipping..."
-        return
-    fi
-    
-    step_header 8 10 "Environment Configuration"
-    
-    export HADOOP_HOME="$INSTALL_DIR/hadoop"
-    export SPARK_HOME="$INSTALL_DIR/spark"
-    export KAFKA_HOME="$INSTALL_DIR/kafka"
-    export PIG_HOME="$INSTALL_DIR/pig"
-    
-    # Ensure Java 17 is available for Kafka
-    if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
-        export JAVA_17_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
-    fi
-    
-    if ! grep -q "HADOOP_HOME" "$HOME/.bashrc"; then
-        log "Adding environment variables to .bashrc..."
-        cat >> "$HOME/.bashrc" <<EOF
-
-# Hadoop Ecosystem Environment
-export HADOOP_HOME=$INSTALL_DIR/hadoop
-export HADOOP_CONF_DIR=\$HADOOP_HOME/etc/hadoop
-export SPARK_HOME=$INSTALL_DIR/spark
-export KAFKA_HOME=$INSTALL_DIR/kafka
-export PIG_HOME=$INSTALL_DIR/pig
-export PATH=\$HADOOP_HOME/bin:\$HADOOP_HOME/sbin:\$SPARK_HOME/bin:\$KAFKA_HOME/bin:\$PIG_HOME/bin:\$PATH
-EOF
-    fi
-    
-    mark_done "env_setup"
-    echo -e "${GREEN}✓ Environment configured${NC}"
+    echo -e "${GREEN}✓ Pig 0.17.0 installed successfully${NC}"
 }
 
 # === HDFS Format ===
