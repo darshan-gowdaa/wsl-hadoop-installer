@@ -3,7 +3,6 @@
 # WSL Hadoop Ecosystem Installation Script
 # Purpose: Student learning environment for Hadoop ecosystem
 # Installs: Hadoop, YARN, Spark, Kafka (KRaft), Pig
-# Version: 3.0 - Enhanced with Animated Progress Bars
 
 set -Eeuo pipefail
 
@@ -13,7 +12,8 @@ HADOOP_VERSION="${HADOOP_VERSION:-3.4.2}"
 SPARK_VERSION="${SPARK_VERSION:-3.5.3}"
 KAFKA_VERSION="${KAFKA_VERSION:-4.1.1}"
 PIG_VERSION="${PIG_VERSION:-0.18.0}"
-JAVA_VERSION="11"
+JAVA_11_VERSION="11"
+JAVA_17_VERSION="17"
 
 STATE_FILE="$HOME/.hadoop_install_state"
 LOG_FILE="$HOME/hadoop_install.log"
@@ -359,15 +359,20 @@ setup_system() {
     spinner $! "Updating packages"
     
     log "Installing dependencies..."
-    local packages=(openjdk-${JAVA_VERSION}-jdk wget curl ssh netcat-openbsd vim net-tools rsync tar gzip unzip util-linux file)
-    local total=${#packages[@]}
-    local current=0
     
-    for pkg in "${packages[@]}"; do
-        current=$((current + 1))
-        (sudo apt-get install -y "$pkg" -qq) &>/dev/null &
-        spinner $! "Installing: $pkg"
-    done
+    echo -e "${YELLOW}Note: Installing both Java 11 (for Hadoop) and Java 17 (for Kafka)${NC}"
+    
+    # Install both Java versions
+    local packages=(openjdk-11-jdk openjdk-17-jdk wget curl ssh netcat-openbsd vim net-tools rsync tar gzip unzip util-linux file)
+    
+    # Install packages with progress
+    (sudo apt-get install -y "${packages[@]}" -qq) &
+    spinner $! "Installing Java 11, Java 17, and dependencies"
+    
+    # Set Java 11 as default (for Hadoop compatibility)
+    log "Setting Java 11 as default..."
+    (sudo update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java 2>/dev/null || true) &
+    spinner $! "Configuring default Java version"
     
     # IPv6 fix
     if ! grep -q "net.ipv6.conf.all.disable_ipv6" /etc/sysctl.conf 2>/dev/null; then
@@ -446,8 +451,8 @@ setup_java() {
     fi
     
     if [ -z "$java_home" ] || [ ! -d "$java_home" ]; then
-        error "JAVA_HOME detection failed. Please install OpenJDK 11:
-    sudo apt-get install -y openjdk-11-jdk"
+        error "JAVA_HOME detection failed. Please install OpenJDK 17:
+    sudo apt-get install -y openjdk-17-jdk"
     fi
     
     export JAVA_HOME="$java_home"
@@ -811,13 +816,39 @@ log.retention.check.interval.ms=300000
 EOF
     
     if [ ! -f "$INSTALL_DIR/kafka/kraft-logs/meta.properties" ]; then
-        log "Formatting Kafka storage..."
-        ("$INSTALL_DIR/kafka/bin/kafka-storage.sh" format -t "$kafka_cluster_id" \
+        log "Formatting Kafka storage with Java 17..."
+        
+        # Use Java 17 for Kafka
+        (JAVA_HOME="$JAVA_17_HOME" "$INSTALL_DIR/kafka/bin/kafka-storage.sh" format -t "$kafka_cluster_id" \
             -c "$INSTALL_DIR/kafka/config/kraft-server.properties") &
-        spinner $! "Formatting Kafka storage"
+        spinner $! "Formatting Kafka storage (using Java 17)"
     else
         log "Kafka storage already formatted, skipping..."
     fi
+    
+    # Create Kafka startup wrapper that uses Java 17
+    log "Creating Kafka Java 17 wrapper..."
+    cat > "$INSTALL_DIR/kafka/bin/kafka-server-start-java17.sh" <<'KAFKAWRAPPER'
+#!/bin/bash
+# Kafka startup wrapper - Forces Java 17
+
+# Get Java 17 home
+if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
+    export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+elif [ -n "$JAVA_17_HOME" ]; then
+    export JAVA_HOME="$JAVA_17_HOME"
+else
+    echo "Error: Java 17 not found!"
+    exit 1
+fi
+
+export PATH="$JAVA_HOME/bin:$PATH"
+
+# Run original Kafka startup
+exec "$(dirname "$0")/kafka-server-start.sh" "$@"
+KAFKAWRAPPER
+    
+    chmod +x "$INSTALL_DIR/kafka/bin/kafka-server-start-java17.sh"
     
     mark_done "kafka_install"
     echo -e "${GREEN}✓ Kafka installed successfully${NC}"
@@ -864,6 +895,11 @@ setup_environment() {
     export SPARK_HOME="$INSTALL_DIR/spark"
     export KAFKA_HOME="$INSTALL_DIR/kafka"
     export PIG_HOME="$INSTALL_DIR/pig"
+    
+    # Ensure Java 17 is available for Kafka
+    if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
+        export JAVA_17_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+    fi
     
     if ! grep -q "HADOOP_HOME" "$HOME/.bashrc"; then
         log "Adding environment variables to .bashrc..."
@@ -949,8 +985,8 @@ fi
 
 # Start Kafka
 if ! pgrep -f "kafka.Kafka" > /dev/null; then
-    echo "Starting Kafka..."
-    nohup "\$INSTALL_DIR/kafka/bin/kafka-server-start.sh" \\
+    echo "Starting Kafka (with Java 17)..."
+    nohup "\$INSTALL_DIR/kafka/bin/kafka-server-start-java17.sh" \\
         "\$INSTALL_DIR/kafka/config/kraft-server.properties" \\
         > "\$INSTALL_DIR/kafka/kafka.log" 2>&1 &
     echo \$! > "\$INSTALL_DIR/kafka/kafka.pid"
