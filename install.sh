@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WSL Hadoop Ecosystem Installation Script_!
+# WSL Hadoop Ecosystem Installation Script!!!
 # Purpose: Student learning environment for Hadoop ecosystem
 # Installs: Hadoop, YARN, Spark, Kafka (KRaft), Pig
 
@@ -128,6 +128,14 @@ safe_exec() {
 
 # === Pre-flight Checks ===
 preflight_checks() {
+    # Detect if running via pipe (curl | bash)
+    if [ ! -t 0 ]; then
+        AUTO_YES=true
+        log "Running in non-interactive mode (piped from curl)"
+    else
+        AUTO_YES=false
+    fi
+    
     echo ""
     echo -e "${GREEN}╔════════════════════════════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║                                                                                        ║${NC}"
@@ -175,15 +183,27 @@ Fix: cd to Linux home:
     # Verify WSL
     if ! grep -qi microsoft /proc/version 2>/dev/null; then
         echo -e "${YELLOW}WARNING:${NC} This script is optimized for WSL."
-        read -p "Continue anyway? (y/n): " choice
-        [[ "$choice" != "y" ]] && exit 0
+        
+        if [ "$AUTO_YES" = true ]; then
+            warn "Auto-continuing in non-interactive mode..."
+        else
+            echo -n "Continue anyway? (y/n): "
+            read choice
+            [[ "$choice" != "y" ]] && exit 0
+        fi
     fi
     
     # Check WSL version
     if ! grep -q "WSL2" /proc/version 2>/dev/null; then
         warn "You might be on WSL1. Hadoop will be SLOW."
-        read -p "Continue anyway? (y/n): " choice
-        [[ "$choice" != "y" ]] && exit 0
+        
+        if [ "$AUTO_YES" = true ]; then
+            warn "Auto-continuing in non-interactive mode..."
+        else
+            echo -n "Continue anyway? (y/n): "
+            read choice
+            [[ "$choice" != "y" ]] && exit 0
+        fi
     else
         log "✓ Running on WSL2"
     fi
@@ -197,8 +217,14 @@ Fix: cd to Linux home:
         warn "WSL has only ${total_mem_gb}GB RAM allocated."
         echo ""
         echo "For Hadoop learning, you need at least 8GB allocated to WSL."
-        read -p "Continue with limited memory? (not recommended) (y/n): " choice
-        [[ "$choice" != "y" ]] && exit 0
+        
+        if [ "$AUTO_YES" = true ]; then
+            warn "Auto-continuing with limited memory in non-interactive mode..."
+        else
+            echo -n "Continue with limited memory? (not recommended) (y/n): "
+            read choice
+            [[ "$choice" != "y" ]] && exit 0
+        fi
     else
         log "[OK] WSL has ${total_mem_gb}GB RAM allocated"
     fi
@@ -220,11 +246,15 @@ Fix: cd to Linux home:
     echo "ACTION REQUIRED: Click 'Allow access' on Private networks"
     echo ""
     
-    echo "Press Ctrl+C to cancel, or Enter to continue..."
-    read
+    if [ "$AUTO_YES" = true ]; then
+        log "Auto-continuing in 3 seconds..."
+        sleep 3
+    else
+        echo "Press Ctrl+C to cancel, or Enter to continue..."
+        read -r
+    fi
     echo ""
 }
-
 # === Trap Handlers ===
 cleanup_on_exit() {
     local exit_code=$?
