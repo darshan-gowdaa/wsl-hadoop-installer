@@ -863,8 +863,6 @@ KAFKAWRAPPER
     echo -e "${GREEN}✓ Kafka installed successfully${NC}"
 }
 
-
-
 # === Pig Installation ===
 install_pig() {
     if is_done "pig_install"; then
@@ -879,22 +877,44 @@ install_pig() {
     if [ ! -d "pig-0.17.0" ]; then
         rm -f "pig-0.17.0.tar.gz"
         
-        # Direct download without retry mirrors (archive.apache.org doesn't work with mirror logic)
-        echo -e "${BLUE}⬇${NC}  Downloading: pig-0.17.0.tar.gz"
-        log "Downloading from Apache Archive..."
+        # Multiple mirrors for Pig 0.17.0
+        local mirrors=(
+            "https://dlcdn.apache.org/pig/pig-0.17.0/pig-0.17.0.tar.gz"
+            "https://downloads.apache.org/pig/pig-0.17.0/pig-0.17.0.tar.gz"
+            "https://archive.apache.org/dist/pig/pig-0.17.0/pig-0.17.0.tar.gz"
+            "https://mirrors.estointernet.in/apache/pig/pig-0.17.0/pig-0.17.0.tar.gz"
+        )
         
-        if ! wget --progress=bar:force --timeout=300 --tries=3 \
-                -O "pig-0.17.0.tar.gz" \
-                "https://archive.apache.org/dist/pig/pig-0.17.0/pig-0.17.0.tar.gz" 2>&1; then
-            error "Failed to download Pig 0.17.0. Please check your internet connection."
+        local downloaded=false
+        
+        for mirror in "${mirrors[@]}"; do
+            echo -e "${BLUE}⬇${NC}  Trying: $mirror"
+            log "Attempting download from: $mirror"
+            
+            if wget --progress=bar:force --timeout=60 --tries=2 \
+                    --connect-timeout=30 --read-timeout=60 \
+                    -O "pig-0.17.0.tar.gz" "$mirror" 2>&1; then
+                
+                # Verify download
+                if [ -f "pig-0.17.0.tar.gz" ] && [ $(stat -c%s "pig-0.17.0.tar.gz" 2>/dev/null || echo 0) -gt 1000000 ]; then
+                    echo -e "${GREEN}✓${NC} Download successful!"
+                    downloaded=true
+                    break
+                else
+                    warn "Downloaded file is too small, trying next mirror..."
+                    rm -f "pig-0.17.0.tar.gz"
+                fi
+            else
+                warn "Mirror failed, trying next..."
+                rm -f "pig-0.17.0.tar.gz"
+            fi
+            
+            sleep 2
+        done
+        
+        if [ "$downloaded" = false ]; then
+            error "Failed to download Pig from all mirrors. Please check your internet connection."
         fi
-        
-        # Verify download
-        if [ ! -f "pig-0.17.0.tar.gz" ] || [ $(stat -c%s "pig-0.17.0.tar.gz" 2>/dev/null || echo 0) -lt 1000000 ]; then
-            error "Download failed or file is corrupted."
-        fi
-        
-        echo -e "${GREEN}✓${NC} Download complete"
         
         log "Extracting Pig..."
         (tar -xzf "pig-0.17.0.tar.gz") &
@@ -907,6 +927,7 @@ install_pig() {
     mark_done "pig_install"
     echo -e "${GREEN}✓ Pig 0.17.0 installed successfully${NC}"
 }
+
 
 # === Environment Setup ===
 setup_environment() {
