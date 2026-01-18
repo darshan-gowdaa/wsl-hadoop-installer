@@ -129,11 +129,11 @@ safe_exec() {
 # === Pre-flight Checks ===
 preflight_checks() {
     echo ""
-    echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║                                                       ║${NC}"
-    echo -e "${GREEN}║       ${BOLD}Hadoop Ecosystem Installer v3.0${NC}${GREEN}            ║${NC}"
-    echo -e "${GREEN}║                                                       ║${NC}"
-    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                                                                                        ║${NC}"
+    echo -e "${GREEN}║       ${BOLD}Hadoop WSL Installer by github.com/darshan-gowdaa${NC}${GREEN}            ║${NC}"
+    echo -e "${GREEN}║                                                                                        ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
     # Validate required commands
@@ -266,48 +266,6 @@ acquire_lock() {
 }
 
 # === Enhanced Download with Progress ===
-show_download_progress() {
-    local output_file=$1
-    local expected_size=$2
-    
-    while [ ! -f "$output_file" ]; do
-        sleep 0.2
-    done
-    
-    while true; do
-        if [ ! -f "$output_file" ]; then
-            break
-        fi
-        
-        local current_size=$(stat -c%s "$output_file" 2>/dev/null || stat -f%z "$output_file" 2>/dev/null || echo 0)
-        
-        if [ "$expected_size" -gt 0 ]; then
-            local percent=$((current_size * 100 / expected_size))
-            local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
-            local empty=$((PROGRESS_BAR_WIDTH - filled))
-            
-            printf "\r${CYAN}[${NC}"
-            printf "%${filled}s" | tr ' ' '█'
-            printf "%${empty}s" | tr ' ' '░'
-            printf "${CYAN}]${NC} ${percent}%% ($(numfmt --to=iec $current_size 2>/dev/null || echo $current_size))"
-        else
-            local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-            local spin_index=$(($(date +%s) % 10))
-            local char=${spin_chars:$spin_index:1}
-            printf "\r${CYAN}${char}${NC} Downloading... $(numfmt --to=iec $current_size 2>/dev/null || echo $current_size)"
-        fi
-        
-        sleep 0.3
-        
-        # Check if wget finished
-        if ! pgrep -f "wget.*$output_file" >/dev/null 2>&1; then
-            break
-        fi
-    done
-    
-    printf "\n"
-}
-
 download_with_retry() {
     local url=$1
     local output=$2
@@ -330,47 +288,49 @@ download_with_retry() {
         for i in $(seq 1 $retries); do
             rm -f "$output"
             
-            # Get expected file size
-            local expected_size=0
-            expected_size=$(curl -sI "$mirror" 2>/dev/null | grep -i content-length | awk '{print $2}' | tr -d '\r' || echo 0)
+            # Simple wget with built-in progress bar
+            echo -e "${CYAN}Attempt $i/$retries...${NC}"
             
-            # Start progress monitor in background
-            show_download_progress "$output" "$expected_size" &
-            local progress_pid=$!
-            
-            # Download with wget
-            if wget -q -c --timeout=120 --tries=1 \
+            if wget --progress=dot:giga --timeout=120 --tries=1 \
                     --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
-                    -O "$output" "$mirror" 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+                    -O "$output" "$mirror" 2>&1 | \
+                    grep --line-buffered "%" | \
+                    sed -u 's/\.//g' | \
+                    while IFS= read -r line; do
+                        if [[ $line =~ ([0-9]+)% ]]; then
+                            local percent="${BASH_REMATCH[1]}"
+                            local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
+                            local empty=$((PROGRESS_BAR_WIDTH - filled))
+                            
+                            printf "\r${CYAN}[${NC}"
+                            printf "%${filled}s" | tr ' ' '█'
+                            printf "%${empty}s" | tr ' ' '░'
+                            printf "${CYAN}]${NC} ${percent}%%"
+                        fi
+                    done; then
                 
-                # Stop progress monitor
-                kill $progress_pid 2>/dev/null || true
-                wait $progress_pid 2>/dev/null || true
+                printf "\n"
                 
                 local file_size
                 file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
                 
                 # Check minimum file size
                 if [ "$file_size" -lt 1000000 ]; then
-                    warn "Downloaded file too small ($file_size bytes), retrying... ($i/$retries)"
+                    warn "Downloaded file too small ($file_size bytes), retrying..."
                     rm -f "$output"
                     continue
                 fi
                 
                 # Verify archive integrity
-                if tar -tzf "$output" >/dev/null 2>&1 || file "$output" | grep -q "gzip compressed"; then
-                    echo -e "${GREEN}✓${NC} Downloaded and verified: $(numfmt --to=iec $file_size 2>/dev/null || echo $file_size bytes)"
+                if tar -tzf "$output" >/dev/null 2>&1 || file "$output" 2>/dev/null | grep -q "gzip compressed"; then
+                    echo -e "${GREEN}✓${NC} Downloaded and verified: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
                     return 0
                 else
-                    warn "Downloaded file corrupted, retrying... ($i/$retries)"
+                    warn "Downloaded file corrupted, retrying..."
                     rm -f "$output"
                 fi
             else
-                # Stop progress monitor
-                kill $progress_pid 2>/dev/null || true
-                wait $progress_pid 2>/dev/null || true
-                
-                warn "Download failed, attempt $i/$retries"
+                warn "Download failed, retrying..."
                 rm -f "$output"
             fi
             
@@ -699,24 +659,70 @@ install_spark() {
         return
     fi
     
-    step_header 5 10 "Spark ${SPARK_VERSION} Installation"
+    step_header 5 10 "Spark 3.5.8 Installation"
     
     cd "$INSTALL_DIR"
     
-    if [ ! -d "spark-${SPARK_VERSION}-bin-hadoop3" ]; then
-        rm -f "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
+    # Hardcoded Spark 3.5.8
+    local SPARK_VERSION_ACTUAL="3.5.8"
+    
+    if [ ! -d "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3" ]; then
+        rm -f "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
         
-        download_with_retry \
-            "https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
-            "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
+        # Direct hardcoded URL
+        local SPARK_URL="https://downloads.apache.org/spark/spark-3.5.8/spark-3.5.8-bin-hadoop3.tgz"
+        
+        echo -e "${BLUE}⬇${NC}  Downloading: spark-3.5.8-bin-hadoop3.tgz"
+        log "Using hardcoded URL: ${SPARK_URL}"
+        
+        local output="spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
+        
+        # Simple direct download with progress
+        echo -e "${CYAN}Downloading from Apache servers...${NC}"
+        
+        if wget --progress=dot:giga --timeout=120 --tries=2 \
+                --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
+                -O "$output" "$SPARK_URL" 2>&1 | \
+                grep --line-buffered "%" | \
+                sed -u 's/\.//g' | \
+                while IFS= read -r line; do
+                    if [[ $line =~ ([0-9]+)% ]]; then
+                        local percent="${BASH_REMATCH[1]}"
+                        local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
+                        local empty=$((PROGRESS_BAR_WIDTH - filled))
+                        
+                        printf "\r${CYAN}[${NC}"
+                        printf "%${filled}s" | tr ' ' '█'
+                        printf "%${empty}s" | tr ' ' '░'
+                        printf "${CYAN}]${NC} ${percent}%%"
+                    fi
+                done; then
+            
+            printf "\n"
+            
+            local file_size
+            file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
+            
+            if [ "$file_size" -lt 1000000 ]; then
+                error "Downloaded file too small. Check your internet connection."
+            fi
+            
+            if ! tar -tzf "$output" >/dev/null 2>&1; then
+                error "Downloaded file is corrupted. Please try again."
+            fi
+            
+            echo -e "${GREEN}✓${NC} Downloaded: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
+        else
+            error "Failed to download Spark. Please check your internet connection."
+        fi
         
         log "Extracting Spark..."
-        (tar -xzf "spark-${SPARK_VERSION}-bin-hadoop3.tgz") &
+        (tar -xzf "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz") &
         spinner $! "Extracting Spark archive"
     fi
     
     rm -f spark
-    ln -s "spark-${SPARK_VERSION}-bin-hadoop3" spark
+    ln -s "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3" spark
     
     # Configure Spark
     cp "$INSTALL_DIR/spark/conf/spark-env.sh.template" "$INSTALL_DIR/spark/conf/spark-env.sh" 2>/dev/null || touch "$INSTALL_DIR/spark/conf/spark-env.sh"
@@ -738,7 +744,7 @@ spark.history.fs.logDirectory    hdfs://localhost:9000/spark-logs
 EOF
     
     mark_done "spark_install"
-    echo -e "${GREEN}✓ Spark installed successfully${NC}"
+    echo -e "${GREEN}✓ Spark 3.5.8 installed successfully${NC}"
 }
 
 # === Kafka Installation ===
