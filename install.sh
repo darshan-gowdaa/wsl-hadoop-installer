@@ -761,6 +761,13 @@ install_kafka() {
     
     step_header 6 10 "Kafka ${KAFKA_VERSION} Installation"
     
+    # SET JAVA_17_HOME BEFORE USING IT
+    if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
+        export JAVA_17_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+    else
+        error "Java 17 not found! Cannot install Kafka."
+    fi
+    
     cd "$INSTALL_DIR"
     local kafka_scala="2.13"
     
@@ -786,7 +793,8 @@ install_kafka() {
         kafka_cluster_id=$(cat "$INSTALL_DIR/kafka/.cluster-id")
         log "Using existing Kafka cluster ID: $kafka_cluster_id"
     else
-        kafka_cluster_id=$("$INSTALL_DIR/kafka/bin/kafka-storage.sh" random-uuid)
+        # Use Java 17 for kafka-storage.sh
+        kafka_cluster_id=$(JAVA_HOME="$JAVA_17_HOME" "$INSTALL_DIR/kafka/bin/kafka-storage.sh" random-uuid)
         echo "$kafka_cluster_id" > "$INSTALL_DIR/kafka/.cluster-id"
         log "Generated new Kafka cluster ID: $kafka_cluster_id"
     fi
@@ -853,7 +861,6 @@ KAFKAWRAPPER
     mark_done "kafka_install"
     echo -e "${GREEN}✓ Kafka installed successfully${NC}"
 }
-
 # === Pig Installation ===
 install_pig() {
     if is_done "pig_install"; then
