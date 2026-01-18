@@ -906,7 +906,7 @@ install_spark() {
         # Download with native wget
         echo -e "${CYAN}Downloading from Apache servers...${NC}"
         
-        if wget --progress=bar:force -O "$output" "$SPARK_URL"; then
+        if wget --progress=bar:force --timeout=60 --tries=2 --connect-timeout=30 -O "$output" "$SPARK_URL"; then
             echo -e "${GREEN}[OK]${NC} Download successful!"
         else
             error "Failed to download Spark. Please check your internet connection."
@@ -1137,7 +1137,7 @@ install_hive() {
         local HIVE_URL="https://archive.apache.org/dist/hive/hive-3.1.3/apache-hive-3.1.3-bin.tar.gz"
         echo -e "${BLUE}->${NC}  Downloading Hive from archive..."
         
-        if wget --progress=bar:force -O "apache-hive-${HIVE_VERSION}-bin.tar.gz" "$HIVE_URL"; then
+        if wget --progress=bar:force --timeout=60 --tries=2 --connect-timeout=30 -O "apache-hive-${HIVE_VERSION}-bin.tar.gz" "$HIVE_URL"; then
              echo -e "${GREEN}[OK]${NC} Download successful!"
         else
              warn "Primary link failed, trying mirrors..."
