@@ -255,50 +255,61 @@ download_with_retry() {
     local output=$2
     local retries=3
     
-    for i in $(seq 1 $retries); do
-        rm -f "$output"
+    # Extract version and filename from URL
+    local filename=$(basename "$url")
+    local path=$(dirname "$url" | sed 's|https://[^/]*/||')
+    
+    # Define multiple mirrors upfront
+    local MIRRORS=(
+        "https://downloads.apache.org/${path}/${filename}"
+        "https://dlcdn.apache.org/${path}/${filename}"
+        "https://archive.apache.org/dist/${path}/${filename}"
+    )
+    
+    # Try each mirror
+    for mirror in "${MIRRORS[@]}"; do
+        log "Trying mirror: ${mirror}"
         
-        if ! curl -s --head --connect-timeout 10 "$url" 2>/dev/null | head -1 | grep -q "200"; then
-            warn "URL not reachable (attempt $i/$retries): $url"
-            sleep 5
-            continue
-        fi
-        
-        if wget -c --timeout=60 --tries=2 -O "$output" "$url" 2>&1 | tee -a "$LOG_FILE"; then
-            local file_size
-            file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
-            
-            if [ "$file_size" -lt 1000000 ]; then
-                warn "Downloaded file too small ($file_size bytes), likely corrupted. Retrying... ($i/$retries)"
-                rm -f "$output"
-                continue
-            fi
-            
-            if tar -tzf "$output" >/dev/null 2>&1 || file "$output" | grep -q "gzip compressed"; then
-                log "Downloaded and verified: $output (${file_size} bytes)"
-                return 0
-            else
-                warn "Downloaded file corrupted, retrying... ($i/$retries)"
-                rm -f "$output"
-            fi
-        else
-            warn "Download failed, retrying... ($i/$retries)"
+        for i in $(seq 1 $retries); do
             rm -f "$output"
-        fi
-        sleep 3
+            
+            # Direct download without HEAD check (HEAD requests also timeout)
+            if wget -c --timeout=120 --tries=2 --waitretry=10 \
+                    --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
+                    -O "$output" "$mirror" 2>&1 | tee -a "$LOG_FILE"; then
+                
+                local file_size
+                file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
+                
+                # Check minimum file size
+                if [ "$file_size" -lt 1000000 ]; then
+                    warn "Downloaded file too small ($file_size bytes), likely corrupted. Retrying... ($i/$retries)"
+                    rm -f "$output"
+                    continue
+                fi
+                
+                # Verify archive integrity
+                if tar -tzf "$output" >/dev/null 2>&1 || file "$output" | grep -q "gzip compressed"; then
+                    log "Downloaded and verified: $output (${file_size} bytes) from ${mirror}"
+                    return 0
+                else
+                    warn "Downloaded file corrupted, retrying... ($i/$retries)"
+                    rm -f "$output"
+                fi
+            else
+                warn "Download failed from ${mirror}, attempt $i/$retries"
+                rm -f "$output"
+            fi
+            
+            sleep 3
+        done
+        
+        log "Mirror ${mirror} failed after ${retries} attempts, trying next mirror..."
+        sleep 2
     done
     
-    log "Trying archive mirror..."
-    local archive_url="${url/dlcdn.apache.org/archive.apache.org\/dist}"
-    rm -f "$output"
-    if wget -c --timeout=60 -O "$output" "$archive_url" 2>&1 | tee -a "$LOG_FILE"; then
-        if tar -tzf "$output" >/dev/null 2>&1; then
-            log "Downloaded from archive mirror: $output"
-            return 0
-        fi
-    fi
-    
-    error "Failed to download $url after $retries attempts and archive fallback"
+    error "Failed to download ${filename} after trying all mirrors"
+    return 1
 }
 
 # === System Setup ===
@@ -659,9 +670,28 @@ install_spark() {
         rm -f "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
         
         log "Downloading Spark ${SPARK_VERSION}..."
-        download_with_retry \
-            "https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
-            "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
+        
+        # Multiple mirrors to handle connection issues
+        local MIRRORS=(
+            "https://downloads.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz"
+            "https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz"
+            "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz"
+        )
+        
+        local SUCCESS=0
+        for mirror in "${MIRRORS[@]}"; do
+            log "Trying mirror: ${mirror}"
+            if download_with_retry "${mirror}" "spark-${SPARK_VERSION}-bin-hadoop3.tgz"; then
+                SUCCESS=1
+                break
+            fi
+            log "Mirror failed, trying next..."
+        done
+        
+        if [ $SUCCESS -eq 0 ]; then
+            log "ERROR: All Spark download mirrors failed"
+            return 1
+        fi
         
         log "Extracting Spark..."
         tar -xzf "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
@@ -691,6 +721,7 @@ EOF
     mark_done "spark_install"
     log "Spark installed successfully"
 }
+
 
 # === Kafka Installation (KRaft mode) ===
 install_kafka() {
