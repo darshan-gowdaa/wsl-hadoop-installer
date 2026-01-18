@@ -1160,23 +1160,59 @@ setup_environment() {
         log "Adding environment variables to .bashrc..."
         cat >> "$HOME/.bashrc" <<'BASHRC_EOF'
 
-# Hadoop Ecosystem Environment
+# ====== Hadoop Ecosystem Environment ======
 export HADOOP_HOME=$HOME/bigdata/hadoop
 export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
 export SPARK_HOME=$HOME/bigdata/spark
 export KAFKA_HOME=$HOME/bigdata/kafka
 export PIG_HOME=$HOME/bigdata/pig
-export JAVA_17_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$PIG_HOME/bin:$HOME:$PATH
 
-# Kafka aliases (Kafka 4.x requires Java 17)
-alias kafka-topics='JAVA_HOME=$JAVA_17_HOME $KAFKA_HOME/bin/kafka-topics.sh'
-alias kafka-console-producer='JAVA_HOME=$JAVA_17_HOME $KAFKA_HOME/bin/kafka-console-producer.sh'
-alias kafka-console-consumer='JAVA_HOME=$JAVA_17_HOME $KAFKA_HOME/bin/kafka-console-consumer.sh'
-alias kafka-server-start='JAVA_HOME=$JAVA_17_HOME $KAFKA_HOME/bin/kafka-server-start.sh'
-alias kafka-server-stop='JAVA_HOME=$JAVA_17_HOME $KAFKA_HOME/bin/kafka-server-stop.sh'
+# ====== Java Configuration ======
+# Java 11 for Hadoop ecosystem
+export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+export PATH=$JAVA_HOME/bin:$PATH
+
+# Java 17 for Kafka
+export JAVA_17_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+# Add tool directories to PATH
+export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$PIG_HOME/bin:$PATH
+
+# ====== Kafka with Java 17 Wrapper Functions ======
+# These functions override JAVA_HOME temporarily for Kafka commands
+
+kafka-topics() {
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH kafka-topics.sh "$@"
+}
+
+kafka-console-producer() {
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH kafka-console-producer.sh "$@"
+}
+
+kafka-console-consumer() {
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH kafka-console-consumer.sh "$@"
+}
+
+kafka-server-start() {
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH kafka-server-start.sh "$@"
+}
+
+kafka-server-stop() {
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH kafka-server-stop.sh "$@"
+}
+
+kafka-configs() {
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH kafka-configs.sh "$@"
+}
+
+kafka-consumer-groups() {
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH kafka-consumer-groups.sh "$@"
+}
+
+# Export functions so they're available in subshells
+export -f kafka-topics kafka-console-producer kafka-console-consumer kafka-server-start kafka-server-stop kafka-configs kafka-consumer-groups
 BASHRC_EOF
-    fi
+fi
     
     mark_done "env_setup"
     echo -e "${GREEN}✓ Environment configured${NC}"
