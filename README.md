@@ -26,7 +26,7 @@ Everything installs inside:
 
 * WSL2 with **Ubuntu 22.04 / 24.04**
 * Windows **16 GB RAM** (8 GB used by WSL)
-* ~15 GB free disk space
+* ~20 GB free disk space
 * Sudo access
 
 ---
