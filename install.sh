@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WSL Hadoop Ecosystem Installation Script!
+# WSL Hadoop Ecosystem Installation Script!!
 # Purpose: Student learning environment for Hadoop ecosystem
 # Installs: Hadoop, YARN, Spark, Kafka (KRaft), Pig
 
@@ -1184,9 +1184,12 @@ start_services() {
     
     log "Waiting for HDFS to exit safe mode..."
     local max_wait=60
+    local safemode_exited=false
+    
     for i in $(seq 1 $max_wait); do
         if "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode get 2>/dev/null | grep -q "OFF"; then
             progress_bar $max_wait $max_wait "HDFS ready"
+            safemode_exited=true
             break
         fi
         progress_bar $i $max_wait "Waiting for safe mode"
@@ -1194,20 +1197,19 @@ start_services() {
     done
 
     if [ "$safemode_exited" = false ]; then
-    warn "HDFS safe mode timeout after ${max_wait}s - forcing exit"
-    "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode leave 2>/dev/null || true
-    sleep 2
+        warn "HDFS safe mode timeout after ${max_wait}s - forcing exit"
+        "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode leave 2>/dev/null || true
+        sleep 2
     fi
 
     log "Creating Spark directory..."
-    # Wait a bit to ensure HDFS is fully ready
     sleep 2
     
-    # Try to create directory with retries
     local retries=3
     for attempt in $(seq 1 $retries); do
         if "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /spark-logs 2>/dev/null; then
             "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs 2>/dev/null || true
+            echo -e "${GREEN}✓${NC} Spark directory created"
             break
         else
             if [ $attempt -lt $retries ]; then
@@ -1217,66 +1219,33 @@ start_services() {
             fi
         fi
     done
-} &
-    spinner $! "Setting up HDFS directories"
     
     log "Starting Kafka..."
-    {
-    # FIX: Ensure Java 17 is set for Kafka
+    
+    # Ensure Java 17 is set for Kafka
     if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
-        export JAVA_17_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+        KAFKA_JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+    else
+        KAFKA_JAVA_HOME="${JAVA_17_HOME:-$JAVA_HOME}"
     fi
     
-    nohup "$KAFKA_HOME/bin/kafka-server-start-java17.sh" \
+    # Start Kafka in background
+    JAVA_HOME="$KAFKA_JAVA_HOME" nohup "$KAFKA_HOME/bin/kafka-server-start-java17.sh" \
         "$KAFKA_HOME/config/kraft-server.properties" \
         > "$INSTALL_DIR/kafka/kafka.log" 2>&1 &
     
-    local kafka_pid=$!
+    kafka_pid=$!
     echo $kafka_pid > "$INSTALL_DIR/kafka/kafka.pid"
+    
+    echo -e "${GREEN}✓${NC} Starting Kafka broker... ${GREEN}Done${NC}"
     
     # Wait and verify Kafka started
     sleep 3
     if ! kill -0 $kafka_pid 2>/dev/null; then
-        warn "Kafka failed to start - check $INSTALL_DIR/kafka/kafka.log"
+        warn "Kafka may have failed to start - check $INSTALL_DIR/kafka/kafka.log"
     fi
-} &
-    spinner $! "Starting Kafka broker"
-    sleep 3
     
     echo -e "${GREEN}✓ All services started successfully${NC}"
-}
-
-# === Verification ===
-verify_installation() {
-    echo ""
-    step_header "Final" "Final" "Installation Verification"
-
-    export HADOOP_HOME="${HADOOP_HOME:-$INSTALL_DIR/hadoop}"
-    export HADOOP_CONF_DIR="${HADOOP_CONF_DIR:-$HADOOP_HOME/etc/hadoop}"
-    
-    echo -e "${BOLD}Running Processes:${NC}"
-    jps 2>/dev/null || warn "jps failed"
-    echo ""
-    
-    echo -e "${BOLD}Service Health Check:${NC}"
-    local services=("NameNode:9870" "DataNode:9864" "ResourceManager:8088" "NodeManager:8042" "Kafka:9092")
-    for service in "${services[@]}"; do
-        IFS=':' read -r name port <<< "$service"
-        if nc -z localhost "$port" 2>/dev/null; then
-            echo -e "  ${GREEN}✓${NC} $name (port $port)"
-        else
-            echo -e "  ${RED}✗${NC} $name (port $port)"
-        fi
-    done
-    echo ""
-    
-    echo -e "${BOLD}HDFS Status:${NC}"
-    safe_exec "$HADOOP_HOME/bin/hdfs" dfsadmin -report 2>&1 | head -10
-    echo ""
-    
-    echo -e "${BOLD}YARN Status:${NC}"
-    safe_exec "$HADOOP_HOME/bin/yarn" node -list
-    echo ""
 }
 
 # === Final Guide ===
