@@ -1,12 +1,11 @@
 #!/bin/bash
 
-# WSL Hadoop Ecosystem Installation Script!!!
-# Purpose: Student learning environment for Hadoop ecosystem
+# WSL Hadoop Ecosystem Installation Script
 # Installs: Hadoop, YARN, Spark, Kafka (KRaft), Pig
 
 set -Eeuo pipefail
 
-# === Configuration ===
+# Configuration
 INSTALL_DIR="$HOME/bigdata"
 HADOOP_VERSION="${HADOOP_VERSION:-3.4.2}"
 SPARK_VERSION="${SPARK_VERSION:-3.5.3}"
@@ -29,13 +28,11 @@ MAGENTA='\033[0;35m'
 NC='\033[0m'
 BOLD='\033[1m'
 
-# Progress characters
+# Progress
 SPINNER_CHARS='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 PROGRESS_BAR_WIDTH=50
 
-# === Enhanced Display Functions ===
-
-# Animated spinner
+# Display Functions
 spinner() {
     local pid=$1
     local message=$2
@@ -60,7 +57,6 @@ spinner() {
     return $exit_code
 }
 
-# Progress bar with percentage
 progress_bar() {
     local current=$1
     local total=$2
@@ -80,9 +76,6 @@ progress_bar() {
     fi
 }
 
-
-
-# Step header
 step_header() {
     local step_num=$1
     local total_steps=$2
@@ -95,7 +88,7 @@ step_header() {
     echo ""
 }
 
-# === Helper Functions ===
+# Logging
 log() {
     echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1" | tee -a "$LOG_FILE"
 }
@@ -109,6 +102,7 @@ warn() {
     echo -e "${YELLOW}[WARN]${NC} $1" | tee -a "$LOG_FILE"
 }
 
+# State management
 mark_done() {
     echo "$1" >> "$STATE_FILE"
 }
@@ -126,9 +120,9 @@ safe_exec() {
     fi
 }
 
-# === Pre-flight Checks ===
+# Pre-flight checks
 preflight_checks() {
-    # Detect if running via pipe (curl | bash)
+    # Detect non-interactive mode
     if [ ! -t 0 ]; then
         AUTO_YES=true
         log "Running in non-interactive mode (piped from curl)"
@@ -144,7 +138,7 @@ preflight_checks() {
     echo -e "${GREEN}╚════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
-    # Validate required commands
+    # Check required commands
     log "Checking required commands..."
     local missing_cmds=()
     local total_cmds=6
@@ -208,7 +202,7 @@ Fix: cd to Linux home:
         log "✓ Running on WSL2"
     fi
     
-    # WSL2 Memory Detection
+    # Memory check
     local total_mem_mb
     total_mem_mb=$(free -m | awk '/^Mem:/{print $2}')
     local total_mem_gb=$((total_mem_mb / 1024))
@@ -237,6 +231,7 @@ Fix: cd to Linux home:
     fi
     log "✓ Sudo access confirmed"
     
+    # Firewall warning
     echo ""
     echo -e "${YELLOW}WARNING - WINDOWS FIREWALL:${NC}"
     echo "During installation, Windows will show firewall popups:"
@@ -255,7 +250,8 @@ Fix: cd to Linux home:
     fi
     echo ""
 }
-# === Trap Handlers ===
+
+# Cleanup handlers
 cleanup_on_exit() {
     local exit_code=$?
     rm -f "$LOCK_FILE"
@@ -295,7 +291,7 @@ acquire_lock() {
     touch "$LOCK_FILE"
 }
 
-# === Enhanced Download with Progress ===
+# Download with progress
 download_with_retry() {
     local url=$1
     local output=$2
@@ -304,6 +300,7 @@ download_with_retry() {
     local filename=$(basename "$url")
     local path=$(dirname "$url" | sed 's|https://[^/]*/||')
     
+    # Mirrors
     local MIRRORS=(
         "https://downloads.apache.org/${path}/${filename}"
         "https://dlcdn.apache.org/${path}/${filename}"
@@ -318,7 +315,6 @@ download_with_retry() {
         for i in $(seq 1 $retries); do
             rm -f "$output"
             
-            # Simple wget with built-in progress bar
             echo -e "${CYAN}Attempt $i/$retries...${NC}"
             
             if wget --progress=dot:giga --timeout=120 --tries=1 \
@@ -344,14 +340,14 @@ download_with_retry() {
                 local file_size
                 file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
                 
-                # Check minimum file size
+                # Verify file size
                 if [ "$file_size" -lt 1000000 ]; then
                     warn "Downloaded file too small ($file_size bytes), retrying..."
                     rm -f "$output"
                     continue
                 fi
                 
-                # Verify archive integrity
+                # Verify archive
                 if tar -tzf "$output" >/dev/null 2>&1 || file "$output" 2>/dev/null | grep -q "gzip compressed"; then
                     echo -e "${GREEN}✓${NC} Downloaded and verified: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
                     return 0
@@ -375,7 +371,7 @@ download_with_retry() {
     return 1
 }
 
-# === System Setup with Progress ===
+# System setup
 setup_system() {
     if is_done "system_setup"; then
         log "System setup already done, skipping..."
@@ -392,14 +388,13 @@ setup_system() {
     
     echo -e "${YELLOW}Note: Installing both Java 11 (for Hadoop) and Java 17 (for Kafka)${NC}"
     
-    # Install both Java versions
+    # Package list
     local packages=(openjdk-11-jdk openjdk-17-jdk wget curl ssh netcat-openbsd vim net-tools rsync tar gzip unzip util-linux file)
     
-    # Install packages with progress
     (sudo apt-get install -y "${packages[@]}" -qq) &
     spinner $! "Installing Java 11, Java 17, and dependencies"
     
-    # Set Java 11 as default (for Hadoop compatibility)
+    # Set Java 11 as default
     log "Setting Java 11 as default..."
     (sudo update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java 2>/dev/null || true) &
     spinner $! "Configuring default Java version"
@@ -412,32 +407,32 @@ setup_system() {
         sudo sysctl -p >/dev/null 2>&1 || true
     fi
     
-    ## SSH setup
-if [ ! -f "$HOME/.ssh/id_rsa" ]; then
-    log "Creating SSH keys..."
-    (ssh-keygen -t rsa -P '' -f "$HOME/.ssh/id_rsa" -q) &
-    spinner $! "Generating SSH keys"
-    cat "$HOME/.ssh/id_rsa.pub" >> "$HOME/.ssh/authorized_keys"
-fi
+    # SSH setup
+    if [ ! -f "$HOME/.ssh/id_rsa" ]; then
+        log "Creating SSH keys..."
+        (ssh-keygen -t rsa -P '' -f "$HOME/.ssh/id_rsa" -q) &
+        spinner $! "Generating SSH keys"
+        cat "$HOME/.ssh/id_rsa.pub" >> "$HOME/.ssh/authorized_keys"
+    fi
 
-# Fix permissions
-log "Setting SSH permissions..."
-chmod 700 ~/.ssh
-chmod 600 ~/.ssh/id_rsa
-chmod 644 ~/.ssh/id_rsa.pub
-chmod 600 ~/.ssh/authorized_keys
+    # Fix SSH permissions
+    log "Setting SSH permissions..."
+    chmod 700 ~/.ssh
+    chmod 600 ~/.ssh/id_rsa
+    chmod 644 ~/.ssh/id_rsa.pub
+    chmod 600 ~/.ssh/authorized_keys
 
-# ===== FIX: ADD SSH HOST KEYS =====
-log "Adding localhost to known_hosts..."
-mkdir -p ~/.ssh
-ssh-keyscan -H localhost >> ~/.ssh/known_hosts 2>/dev/null || true
-ssh-keyscan -H 0.0.0.0 >> ~/.ssh/known_hosts 2>/dev/null || true
-ssh-keyscan -H 127.0.0.1 >> ~/.ssh/known_hosts 2>/dev/null || true
+    # Add localhost to known_hosts
+    log "Adding localhost to known_hosts..."
+    mkdir -p ~/.ssh
+    ssh-keyscan -H localhost >> ~/.ssh/known_hosts 2>/dev/null || true
+    ssh-keyscan -H 0.0.0.0 >> ~/.ssh/known_hosts 2>/dev/null || true
+    ssh-keyscan -H 127.0.0.1 >> ~/.ssh/known_hosts 2>/dev/null || true
 
-# ===== FIX: CONFIGURE SSH TO SKIP HOST KEY CHECKING FOR LOCALHOST =====
-log "Configuring SSH client..."
-if ! grep -q "StrictHostKeyChecking no" ~/.ssh/config 2>/dev/null; then
-    cat >> ~/.ssh/config <<'SSHCONFIG'
+    # Configure SSH to skip host key checking for localhost
+    log "Configuring SSH client..."
+    if ! grep -q "StrictHostKeyChecking no" ~/.ssh/config 2>/dev/null; then
+        cat >> ~/.ssh/config <<'SSHCONFIG'
 Host localhost
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
@@ -453,21 +448,21 @@ Host 0.0.0.0
     UserKnownHostsFile /dev/null
     LogLevel ERROR
 SSHCONFIG
-    chmod 600 ~/.ssh/config
-fi
+        chmod 600 ~/.ssh/config
+    fi
 
-# Start SSH
-if ! pgrep -x sshd >/dev/null; then
-    log "Starting SSH service..."
-    (sudo service ssh start) &
-    spinner $! "Starting SSH"
-fi
+    # Start SSH service
+    if ! pgrep -x sshd >/dev/null; then
+        log "Starting SSH service..."
+        (sudo service ssh start) &
+        spinner $! "Starting SSH"
+    fi
     
     mark_done "system_setup"
     echo -e "${GREEN}✓ System setup completed${NC}"
 }
 
-# === Java Setup with Progress ===
+# Java configuration
 setup_java() {
     if is_done "java_setup"; then
         log "Java setup already done, skipping..."
@@ -478,17 +473,16 @@ setup_java() {
     
     log "Detecting JAVA_HOME..."
     
-    # Create a temp file for the result
-    local temp_file="/tmp/java_home_$"
+    # Detect JAVA_HOME
+    local temp_file="/tmp/java_home_$$"
     
-    # Detect JAVA_HOME with spinner
     {
         local detected_path=""
         if command -v update-alternatives >/dev/null 2>&1; then
             detected_path=$(update-alternatives --query java 2>/dev/null | grep 'Value:' | cut -d' ' -f2 | sed 's|/bin/java||')
         fi
         
-        # Fallback method
+        # Fallback
         if [ -z "$detected_path" ] || [ ! -d "$detected_path" ]; then
             if command -v java >/dev/null 2>&1; then
                 local java_bin=$(which java)
@@ -502,7 +496,7 @@ setup_java() {
     local detect_pid=$!
     spinner $detect_pid "Detecting JAVA_HOME"
     
-    # Read the result
+    # Read result
     local java_home=""
     if [ -f "$temp_file" ]; then
         java_home=$(cat "$temp_file")
@@ -516,6 +510,7 @@ setup_java() {
     
     export JAVA_HOME="$java_home"
     
+    # Add to bashrc
     if ! grep -q "JAVA_HOME" "$HOME/.bashrc"; then
         log "Adding JAVA_HOME to .bashrc..."
         cat >> "$HOME/.bashrc" <<EOF
@@ -530,7 +525,7 @@ EOF
     echo -e "${GREEN}✓ Java configured: $JAVA_HOME${NC}"
 }
 
-# === Hadoop Installation with Progress ===
+# Hadoop installation
 install_hadoop() {
     if is_done "hadoop_install"; then
         log "Hadoop already installed, skipping..."
@@ -561,7 +556,7 @@ install_hadoop() {
     echo -e "${GREEN}✓ Hadoop installed successfully${NC}"
 }
 
-# === Hadoop Configuration with Progress ===
+# Hadoop configuration
 configure_hadoop() {
     if is_done "hadoop_config"; then
         log "Hadoop already configured, skipping..."
@@ -586,7 +581,6 @@ configure_hadoop() {
     
     log "Configuring Hadoop (YARN Memory: ${yarn_mem}MB)..."
     
-    # Configuration files
     local config_files=("hadoop-env.sh" "core-site.xml" "hdfs-site.xml" "mapred-site.xml" "yarn-site.xml")
     local total=${#config_files[@]}
     
@@ -820,7 +814,6 @@ install_kafka() {
     
     step_header 6 10 "Kafka ${KAFKA_VERSION} Installation"
     
-    # ===== FIX 1: SET JAVA_17_HOME IMMEDIATELY =====
     if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
         export JAVA_17_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
     else
@@ -854,7 +847,6 @@ install_kafka() {
         kafka_cluster_id=$(cat "$INSTALL_DIR/kafka/.cluster-id")
         log "Using existing Kafka cluster ID: $kafka_cluster_id"
     else
-        # ===== FIX 2: USE JAVA_17_HOME WHEN GENERATING CLUSTER ID =====
         kafka_cluster_id=$(JAVA_HOME="$JAVA_17_HOME" "$INSTALL_DIR/kafka/bin/kafka-storage.sh" random-uuid)
         echo "$kafka_cluster_id" > "$INSTALL_DIR/kafka/.cluster-id"
         log "Generated new Kafka cluster ID: $kafka_cluster_id"
@@ -887,7 +879,6 @@ EOF
     if [ ! -f "$INSTALL_DIR/kafka/kraft-logs/meta.properties" ]; then
         log "Formatting Kafka storage with Java 17..."
         
-        # ===== FIX 3: USE JAVA_17_HOME WHEN FORMATTING =====
         JAVA_HOME="$JAVA_17_HOME" "$INSTALL_DIR/kafka/bin/kafka-storage.sh" format -t "$kafka_cluster_id" \
             -c "$INSTALL_DIR/kafka/config/kraft-server.properties"
     else
@@ -1203,7 +1194,6 @@ RESTARTSCRIPT
 }
 
 # === Start Services with Progress ===
-# === Start Services with Progress ===
 start_services() {
     step_header 10 10 "Starting Services"
     
@@ -1347,15 +1337,7 @@ verify_installation() {
 }
 
 # === Final Guide ===
-print_guide() {
-    echo ""
-    echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║                                                       ║${NC}"
-    echo -e "${GREEN}║         ${BOLD}Installation Complete!${NC}${GREEN}    ║${NC}"
-    echo -e "${GREEN}║                                                       ║${NC}"
-    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    
+print_guide() {    
     cat <<EOF
 ${BOLD}${YELLOW}Quick Start Commands:${NC}
 
@@ -1420,8 +1402,14 @@ main() {
     verify_installation
     print_guide
     
-    echo -e "${GREEN}${BOLD}✓ Installation complete!${NC}"
-    echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
+    echo ""
+    echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                                                       ║${NC}"
+    echo -e "${GREEN}║         ${BOLD}Installation Complete!${NC}${GREEN}    ║${NC}"
+    echo -e "${GREEN}║     ${BOLD}www.github.com/darshangowdaa${NC}${GREEN}  ║${NC}"
+    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "Run: ${CYAN}source ~/.bashrc${NC} or Restart WSL and run ~/start-hadoop.sh "
 }
 
 main
