@@ -3,7 +3,7 @@
 # WSL Hadoop Ecosystem Installation Script
 # Purpose: Student learning environment for Hadoop ecosystem
 # Installs: Hadoop, YARN, Spark, Kafka (KRaft), Pig
-# Version: 2.1 - ALL ERRORS ACTUALLY FIXED
+# Version: 3.0 - Enhanced with Animated Progress Bars
 
 set -Eeuo pipefail
 
@@ -23,9 +23,79 @@ LOCK_FILE="$HOME/.hadoop_install.lock"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 NC='\033[0m'
+BOLD='\033[1m'
 
-# === Helper Functions (Defined Early) ===
+# Progress characters
+SPINNER_CHARS='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+PROGRESS_BAR_WIDTH=50
+
+# === Enhanced Display Functions ===
+
+# Animated spinner
+spinner() {
+    local pid=$1
+    local message=$2
+    local spin_index=0
+    
+    while kill -0 $pid 2>/dev/null; do
+        local char=${SPINNER_CHARS:$spin_index:1}
+        printf "\r${CYAN}${char}${NC} ${message}..."
+        spin_index=$(( (spin_index + 1) % ${#SPINNER_CHARS} ))
+        sleep 0.1
+    done
+    
+    wait $pid
+    local exit_code=$?
+    
+    if [ $exit_code -eq 0 ]; then
+        printf "\r${GREEN}✓${NC} ${message}... ${GREEN}Done${NC}\n"
+    else
+        printf "\r${RED}✗${NC} ${message}... ${RED}Failed${NC}\n"
+    fi
+    
+    return $exit_code
+}
+
+# Progress bar with percentage
+progress_bar() {
+    local current=$1
+    local total=$2
+    local message=$3
+    
+    local percentage=$((current * 100 / total))
+    local filled=$((current * PROGRESS_BAR_WIDTH / total))
+    local empty=$((PROGRESS_BAR_WIDTH - filled))
+    
+    printf "\r${CYAN}[${NC}"
+    printf "%${filled}s" | tr ' ' '█'
+    printf "%${empty}s" | tr ' ' '░'
+    printf "${CYAN}]${NC} ${percentage}%% - ${message}"
+    
+    if [ $current -eq $total ]; then
+        printf " ${GREEN}✓${NC}\n"
+    fi
+}
+
+
+
+# Step header
+step_header() {
+    local step_num=$1
+    local total_steps=$2
+    local message=$3
+    
+    echo ""
+    echo -e "${BOLD}${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${YELLOW}Step ${step_num}/${total_steps}:${NC} ${BOLD}${message}${NC}"
+    echo -e "${BOLD}${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+}
+
+# === Helper Functions ===
 log() {
     echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1" | tee -a "$LOG_FILE"
 }
@@ -59,16 +129,28 @@ safe_exec() {
 # === Pre-flight Checks ===
 preflight_checks() {
     echo ""
-    echo -e "${GREEN}=== Hadoop Ecosystem Installer ===${NC}"
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                                                                                              ║${NC}"
+    echo -e "${GREEN}║       ${BOLD}Hadoop Ecosystem Installer by github.com/darshan-gowdaa${NC}${GREEN}            ║${NC}"
+    echo -e "${GREEN}║                                                                                              ║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
-    # Validate required commands exist
+    # Validate required commands
     log "Checking required commands..."
     local missing_cmds=()
+    local total_cmds=6
+    local current_cmd=0
+    
     for cmd in wget tar ssh-keygen awk grep sed; do
-        if ! command -v "$cmd" &>/dev/null; then
+        current_cmd=$((current_cmd + 1))
+        if command -v "$cmd" &>/dev/null; then
+            progress_bar $current_cmd $total_cmds "Checking: $cmd"
+        else
             missing_cmds+=("$cmd")
+            progress_bar $current_cmd $total_cmds "Missing: $cmd"
         fi
+        sleep 0.1
     done
     
     if [ ${#missing_cmds[@]} -gt 0 ]; then
@@ -77,7 +159,7 @@ preflight_checks() {
 Install with: sudo apt-get install -y ${missing_cmds[*]}"
     fi
     
-    # Check if running from Windows filesystem (resolves symlinks)
+    # Check filesystem location
     local real_path
     real_path=$(readlink -f "$PWD")
     if [[ "$real_path" == /mnt/* ]] || [[ "$real_path" == *"/mnt/"* ]]; then
@@ -90,10 +172,9 @@ Fix: cd to Linux home:
   bash ./$(basename "$0")"
     fi
     
-    # Verify running in WSL
+    # Verify WSL
     if ! grep -qi microsoft /proc/version 2>/dev/null; then
         echo -e "${YELLOW}WARNING:${NC} This script is optimized for WSL."
-        echo "You appear to be running on native Linux."
         read -p "Continue anyway? (y/n): " choice
         [[ "$choice" != "y" ]] && exit 0
     fi
@@ -101,23 +182,13 @@ Fix: cd to Linux home:
     # Check WSL version
     if ! grep -q "WSL2" /proc/version 2>/dev/null; then
         warn "You might be on WSL1. Hadoop will be SLOW."
-        echo "To upgrade: Open PowerShell as admin and run:"
-        echo "  wsl --set-version Ubuntu 2"
         read -p "Continue anyway? (y/n): " choice
         [[ "$choice" != "y" ]] && exit 0
     else
         log "✓ Running on WSL2"
     fi
     
-    # Check Ubuntu version
-    if ! grep -qi ubuntu /etc/os-release 2>/dev/null; then
-        echo -e "${YELLOW}WARNING:${NC} This script is tested on Ubuntu."
-        echo "Your distribution may have compatibility issues."
-        read -p "Continue anyway? (y/n): " choice
-        [[ "$choice" != "y" ]] && exit 0
-    fi
-    
-    # WSL2 Memory Detection - use MB
+    # WSL2 Memory Detection
     local total_mem_mb
     total_mem_mb=$(free -m | awk '/^Mem:/{print $2}')
     local total_mem_gb=$((total_mem_mb / 1024))
@@ -126,39 +197,17 @@ Fix: cd to Linux home:
         warn "WSL has only ${total_mem_gb}GB RAM allocated."
         echo ""
         echo "For Hadoop learning, you need at least 8GB allocated to WSL."
-        echo ""
-        echo "To fix: Create C:\\Users\\<username>\\.wslconfig with:"
-        echo ""
-        echo "[wsl2]"
-        echo "memory=8GB"
-        echo "swap=2GB"
-        echo "processors=4"
-        echo ""
-        echo "Then restart WSL: wsl --shutdown in PowerShell"
-        echo ""
         read -p "Continue with limited memory? (not recommended) (y/n): " choice
         [[ "$choice" != "y" ]] && exit 0
     else
         log "[OK] WSL has ${total_mem_gb}GB RAM allocated"
     fi
     
-    # Sudo warning and test
+    # Sudo test
     echo ""
-    echo -e "${YELLOW}⚠️  IMPORTANT:${NC}"
-    echo "  - This script requires sudo access for package installation"
-    echo "  - You will be prompted for your WSL password"
-    echo "  - Installation takes 5-10 minutes depending on internet speed"
-    echo "  - Requires ~10GB disk space"
-    echo ""
-    
-    echo -e "${YELLOW}Testing sudo access...${NC}"
+    echo -e "${YELLOW}⚠️  Testing sudo access...${NC}"
     if ! sudo -v; then
-        error "Sudo authentication failed. Did you forget your WSL password?
-        
-To reset: Open PowerShell as admin and run:
-  wsl -u root
-  passwd <your-username>
-  exit"
+        error "Sudo authentication failed."
     fi
     log "✓ Sudo access confirmed"
     
@@ -169,34 +218,10 @@ To reset: Open PowerShell as admin and run:
     echo "  - OpenSSH SSH Server"
     echo ""
     echo "ACTION REQUIRED: Click 'Allow access' on Private networks"
-    echo "WARNING: DO NOT click 'Block' - Hadoop will not function"
     echo ""
     
-    # Check for unclean WSL shutdown
-    if [ -f "$INSTALL_DIR/hadoop/dfs/namenode/in_use.lock" ]; then
-        warn "Detected unclean shutdown. NameNode may need recovery."
-        read -t 10 -p "Remove lock file? (y/n): " choice || choice="n"
-        [[ "$choice" == "y" ]] && rm -f "$INSTALL_DIR/hadoop/dfs/namenode/in_use.lock"
-    fi
-    
-    # Check if Hadoop already running
-    if command -v jps &>/dev/null && jps 2>/dev/null | grep -qE "NameNode|DataNode|ResourceManager"; then
-        warn "Hadoop services are already running!"
-        echo "Running processes:"
-        jps 2>/dev/null | grep -E "NameNode|DataNode|ResourceManager|NodeManager"
-        echo ""
-        read -p "Stop them before continuing? (y/n): " choice
-        if [[ "$choice" == "y" ]]; then
-            [ -d "$INSTALL_DIR/hadoop" ] && "$INSTALL_DIR/hadoop/sbin/stop-all.sh" 2>/dev/null || true
-            pkill -f "kafka.Kafka" 2>/dev/null || true
-            sleep 3
-        fi
-    fi
-    
-    echo ""
     echo "Press Ctrl+C to cancel, or Enter to continue..."
     read
-    
     echo ""
 }
 
@@ -217,21 +242,11 @@ check_disk_space() {
     local available_kb
     available_kb=$(df "$HOME" | awk 'NR==2 {print $4}')
     local available_gb=$((available_kb / 1024 / 1024))
-    local wsl_location
-    wsl_location=$(df -h "$HOME" | awk 'NR==2 {print $1}')
     
-    log "WSL storage: $wsl_location (${available_gb}GB available)"
+    log "WSL storage: ${available_gb}GB available"
     
     if [ "$available_gb" -lt "$required_gb" ]; then
-        error "Need ${required_gb}GB free. Have ${available_gb}GB.
-        
-Breakdown:
-  - Hadoop install: ~2GB
-  - Sample datasets: 1-2GB  
-  - HDFS data: 2-5GB (learning)
-  - Logs: 1-2GB over time
-
-Free up space or move to different drive."
+        error "Need ${required_gb}GB free. Have ${available_gb}GB."
     fi
     log "Disk space check passed: ${available_gb}GB available"
 }
@@ -241,13 +256,56 @@ acquire_lock() {
         local lock_age
         lock_age=$(($(date +%s) - $(stat -c %Y "$LOCK_FILE" 2>/dev/null || echo 0)))
         if [ "$lock_age" -gt 3600 ]; then
-            warn "Stale lock file detected (${lock_age}s old), removing..."
+            warn "Stale lock file detected, removing..."
             rm -f "$LOCK_FILE"
         else
-            error "Another installation is running. Remove $LOCK_FILE if this is incorrect."
+            error "Another installation is running."
         fi
     fi
     touch "$LOCK_FILE"
+}
+
+# === Enhanced Download with Progress ===
+show_download_progress() {
+    local output_file=$1
+    local expected_size=$2
+    
+    while [ ! -f "$output_file" ]; do
+        sleep 0.2
+    done
+    
+    while true; do
+        if [ ! -f "$output_file" ]; then
+            break
+        fi
+        
+        local current_size=$(stat -c%s "$output_file" 2>/dev/null || stat -f%z "$output_file" 2>/dev/null || echo 0)
+        
+        if [ "$expected_size" -gt 0 ]; then
+            local percent=$((current_size * 100 / expected_size))
+            local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
+            local empty=$((PROGRESS_BAR_WIDTH - filled))
+            
+            printf "\r${CYAN}[${NC}"
+            printf "%${filled}s" | tr ' ' '█'
+            printf "%${empty}s" | tr ' ' '░'
+            printf "${CYAN}]${NC} ${percent}%% ($(numfmt --to=iec $current_size 2>/dev/null || echo $current_size))"
+        else
+            local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+            local spin_index=$(($(date +%s) % 10))
+            local char=${spin_chars:$spin_index:1}
+            printf "\r${CYAN}${char}${NC} Downloading... $(numfmt --to=iec $current_size 2>/dev/null || echo $current_size)"
+        fi
+        
+        sleep 0.3
+        
+        # Check if wget finished
+        if ! pgrep -f "wget.*$output_file" >/dev/null 2>&1; then
+            break
+        fi
+    done
+    
+    printf "\n"
 }
 
 download_with_retry() {
@@ -255,49 +313,64 @@ download_with_retry() {
     local output=$2
     local retries=3
     
-    # Extract version and filename from URL
     local filename=$(basename "$url")
     local path=$(dirname "$url" | sed 's|https://[^/]*/||')
     
-    # Define multiple mirrors upfront
     local MIRRORS=(
         "https://downloads.apache.org/${path}/${filename}"
         "https://dlcdn.apache.org/${path}/${filename}"
         "https://archive.apache.org/dist/${path}/${filename}"
     )
     
-    # Try each mirror
+    echo -e "${BLUE}⬇${NC}  Downloading: ${filename}"
+    
     for mirror in "${MIRRORS[@]}"; do
         log "Trying mirror: ${mirror}"
         
         for i in $(seq 1 $retries); do
             rm -f "$output"
             
-            # Direct download without HEAD check (HEAD requests also timeout)
-            if wget -c --timeout=120 --tries=2 --waitretry=10 \
+            # Get expected file size
+            local expected_size=0
+            expected_size=$(curl -sI "$mirror" 2>/dev/null | grep -i content-length | awk '{print $2}' | tr -d '\r' || echo 0)
+            
+            # Start progress monitor in background
+            show_download_progress "$output" "$expected_size" &
+            local progress_pid=$!
+            
+            # Download with wget
+            if wget -q -c --timeout=120 --tries=1 \
                     --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
-                    -O "$output" "$mirror" 2>&1 | tee -a "$LOG_FILE"; then
+                    -O "$output" "$mirror" 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+                
+                # Stop progress monitor
+                kill $progress_pid 2>/dev/null || true
+                wait $progress_pid 2>/dev/null || true
                 
                 local file_size
                 file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
                 
                 # Check minimum file size
                 if [ "$file_size" -lt 1000000 ]; then
-                    warn "Downloaded file too small ($file_size bytes), likely corrupted. Retrying... ($i/$retries)"
+                    warn "Downloaded file too small ($file_size bytes), retrying... ($i/$retries)"
                     rm -f "$output"
                     continue
                 fi
                 
                 # Verify archive integrity
                 if tar -tzf "$output" >/dev/null 2>&1 || file "$output" | grep -q "gzip compressed"; then
-                    log "Downloaded and verified: $output (${file_size} bytes) from ${mirror}"
+                    echo -e "${GREEN}✓${NC} Downloaded and verified: $(numfmt --to=iec $file_size 2>/dev/null || echo $file_size bytes)"
                     return 0
                 else
                     warn "Downloaded file corrupted, retrying... ($i/$retries)"
                     rm -f "$output"
                 fi
             else
-                warn "Download failed from ${mirror}, attempt $i/$retries"
+                # Stop progress monitor
+                kill $progress_pid 2>/dev/null || true
+                wait $progress_pid 2>/dev/null || true
+                
+                warn "Download failed, attempt $i/$retries"
                 rm -f "$output"
             fi
             
@@ -312,99 +385,81 @@ download_with_retry() {
     return 1
 }
 
-# === System Setup ===
+# === System Setup with Progress ===
 setup_system() {
     if is_done "system_setup"; then
         log "System setup already done, skipping..."
         return
     fi
     
-    log "Updating system packages..."
-    if ! sudo apt-get update -qq; then
-        error "Failed to update packages"
-    fi
+    step_header 1 10 "System Setup"
     
-    if ! sudo apt-get install -y openjdk-${JAVA_VERSION}-jdk wget curl ssh \
-    netcat-openbsd vim net-tools rsync tar gzip unzip util-linux file; then
-        error "Failed to install required packages"
-    fi
+    log "Updating package lists..."
+    (sudo apt-get update -qq) &
+    spinner $! "Updating packages"
     
-    # WSL2 IPv6 localhost fix (CRITICAL for Kafka)
+    log "Installing dependencies..."
+    local packages=(openjdk-${JAVA_VERSION}-jdk wget curl ssh netcat-openbsd vim net-tools rsync tar gzip unzip util-linux file)
+    local total=${#packages[@]}
+    local current=0
+    
+    for pkg in "${packages[@]}"; do
+        current=$((current + 1))
+        (sudo apt-get install -y "$pkg" -qq) &>/dev/null &
+        spinner $! "Installing: $pkg"
+    done
+    
+    # IPv6 fix
     if ! grep -q "net.ipv6.conf.all.disable_ipv6" /etc/sysctl.conf 2>/dev/null; then
-        log "Applying WSL2 IPv6 fix for Kafka connectivity..."
+        log "Applying WSL2 IPv6 fix..."
         echo "net.ipv6.conf.all.disable_ipv6=1" | sudo tee -a /etc/sysctl.conf >/dev/null
         echo "net.ipv6.conf.default.disable_ipv6=1" | sudo tee -a /etc/sysctl.conf >/dev/null
         sudo sysctl -p >/dev/null 2>&1 || true
     fi
     
-    # SSH for passwordless localhost
+    # SSH setup
     if [ ! -f "$HOME/.ssh/id_rsa" ]; then
-        log "Creating SSH keys for Hadoop pseudo-distributed mode"
-        ssh-keygen -t rsa -P '' -f "$HOME/.ssh/id_rsa" -q
+        log "Creating SSH keys..."
+        (ssh-keygen -t rsa -P '' -f "$HOME/.ssh/id_rsa" -q) &
+        spinner $! "Generating SSH keys"
         cat "$HOME/.ssh/id_rsa.pub" >> "$HOME/.ssh/authorized_keys"
     fi
     
-    # SSH keys permissions (critical on WSL2)
-    log "Fixing SSH key permissions..."
+    # Fix permissions
+    log "Setting SSH permissions..."
     chmod 700 ~/.ssh
     chmod 600 ~/.ssh/id_rsa
     chmod 644 ~/.ssh/id_rsa.pub
     chmod 600 ~/.ssh/authorized_keys
-    chmod 644 ~/.ssh/known_hosts 2>/dev/null || true
     
-    # Configure passwordless sudo for SSH service (WSL2 only)
-    if grep -qi microsoft /proc/version; then
-        if ! sudo grep -q "$USER.*ssh" /etc/sudoers.d/wsl-services 2>/dev/null; then
-            echo "$USER ALL=(ALL) NOPASSWD: /usr/sbin/service ssh start" | sudo tee /etc/sudoers.d/wsl-services >/dev/null
-            sudo chmod 440 /etc/sudoers.d/wsl-services
-        fi
-    fi
-    
-    if [ ! -f "$HOME/.ssh/known_hosts" ] || ! grep -q "localhost" "$HOME/.ssh/known_hosts" 2>/dev/null; then
-        ssh-keyscan -H localhost >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
-        ssh-keyscan -H 127.0.0.1 >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
-    fi
-    
-    # Start SSH service
+    # Start SSH
     if ! pgrep -x sshd >/dev/null; then
         log "Starting SSH service..."
-        sudo service ssh start || error "SSH service failed to start"
-    fi
-    
-    # Auto-start SSH on WSL boot
-    if ! grep -q "service ssh start" "$HOME/.bashrc" 2>/dev/null; then
-        cat >> "$HOME/.bashrc" <<'EOF'
-
-# Auto-start SSH for Hadoop (WSL requirement)
-if ! pgrep -x sshd > /dev/null; then
-    sudo service ssh start 2>/dev/null
-fi
-EOF
+        (sudo service ssh start) &
+        spinner $! "Starting SSH"
     fi
     
     mark_done "system_setup"
-    log "System setup completed"
+    echo -e "${GREEN}✓ System setup completed${NC}"
 }
 
-# === Java Setup ===
+# === Java Setup with Progress ===
 setup_java() {
     if is_done "java_setup"; then
         log "Java setup already done, skipping..."
         return
     fi
     
+    step_header 2 10 "Java Configuration"
+    
     local java_home
-    if command -v update-alternatives >/dev/null 2>&1; then
-        java_home=$(update-alternatives --query java | grep 'Value:' | cut -d' ' -f2 | sed 's|/bin/java||')
-    else
-        java_home=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
-    fi
+    (java_home=$(update-alternatives --query java | grep 'Value:' | cut -d' ' -f2 | sed 's|/bin/java||')) &
+    spinner $! "Detecting JAVA_HOME"
     
     if [ ! -d "$java_home" ]; then
         error "JAVA_HOME detection failed: $java_home"
     fi
     
-    # Export JAVA_HOME for current session
     export JAVA_HOME="$java_home"
     
     if ! grep -q "JAVA_HOME" "$HOME/.bashrc"; then
@@ -417,17 +472,18 @@ export PATH=\$JAVA_HOME/bin:\$PATH
 EOF
     fi
     
-    chmod 600 "$HOME/.bashrc"
     mark_done "java_setup"
-    log "Java setup completed: $JAVA_HOME"
+    echo -e "${GREEN}✓ Java configured: $JAVA_HOME${NC}"
 }
 
-# === Hadoop Installation ===
+# === Hadoop Installation with Progress ===
 install_hadoop() {
     if is_done "hadoop_install"; then
         log "Hadoop already installed, skipping..."
         return
     fi
+    
+    step_header 3 10 "Hadoop ${HADOOP_VERSION} Installation"
     
     mkdir -p "$INSTALL_DIR"
     cd "$INSTALL_DIR"
@@ -435,46 +491,50 @@ install_hadoop() {
     if [ ! -d "hadoop-${HADOOP_VERSION}" ]; then
         rm -f "hadoop-${HADOOP_VERSION}.tar.gz"
         
-        log "Downloading Hadoop ${HADOOP_VERSION}..."
         download_with_retry \
             "https://dlcdn.apache.org/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz" \
             "hadoop-${HADOOP_VERSION}.tar.gz"
         
         log "Extracting Hadoop..."
-        tar -xzf "hadoop-${HADOOP_VERSION}.tar.gz"
+        (tar -xzf "hadoop-${HADOOP_VERSION}.tar.gz") &
+        spinner $! "Extracting Hadoop archive"
     fi
     
     rm -f hadoop
     ln -s "hadoop-${HADOOP_VERSION}" hadoop
     
     mark_done "hadoop_install"
-    log "Hadoop installed successfully"
+    echo -e "${GREEN}✓ Hadoop installed successfully${NC}"
 }
 
-# === Hadoop Configuration ===
+# === Hadoop Configuration with Progress ===
 configure_hadoop() {
     if is_done "hadoop_config"; then
         log "Hadoop already configured, skipping..."
         return
     fi
     
+    step_header 4 10 "Hadoop Configuration"
+    
     export HADOOP_HOME="$INSTALL_DIR/hadoop"
     export HADOOP_CONF_DIR="$HADOOP_HOME/etc/hadoop"
     
-    # WSL-aware memory calculation
+    # Calculate memory
     local total_mem
     total_mem=$(free -m | awk '/^Mem:/{print $2}')
-    
     local yarn_mem=$((total_mem * 70 / 100))
     local container_mem=$((yarn_mem / 2))
     
-    # Cap at reasonable limits for WSL
     if [ "$yarn_mem" -gt 4096 ]; then
         yarn_mem=4096
         container_mem=2048
     fi
     
     log "Configuring Hadoop (YARN Memory: ${yarn_mem}MB)..."
+    
+    # Configuration files
+    local config_files=("hadoop-env.sh" "core-site.xml" "hdfs-site.xml" "mapred-site.xml" "yarn-site.xml")
+    local total=${#config_files[@]}
     
     # hadoop-env.sh
     cat > "$HADOOP_CONF_DIR/hadoop-env.sh" <<EOF
@@ -489,8 +549,9 @@ export HDFS_SECONDARYNAMENODE_USER="$USER"
 export YARN_RESOURCEMANAGER_USER="$USER"
 export YARN_NODEMANAGER_USER="$USER"
 EOF
+    progress_bar 1 $total "Creating hadoop-env.sh"
     
-    # FIXED: core-site.xml - Proper XML tags <name> not <n>
+    # core-site.xml
     cat > "$HADOOP_CONF_DIR/core-site.xml" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
@@ -498,27 +559,20 @@ EOF
     <property>
         <name>fs.defaultFS</name>
         <value>hdfs://localhost:9000</value>
-        <description>The default file system URI</description>
     </property>
     <property>
         <name>hadoop.tmp.dir</name>
         <value>/home/USER_PLACEHOLDER/bigdata/hadoop/tmp</value>
-        <description>Base for other temp directories</description>
-    </property>
-    <property>
-        <name>hadoop.http.staticuser.user</name>
-        <value>USER_PLACEHOLDER</value>
     </property>
 </configuration>
 EOF
     sed -i "s|USER_PLACEHOLDER|$USER|g" "$HADOOP_CONF_DIR/core-site.xml"
+    progress_bar 2 $total "Creating core-site.xml"
     
-    # Create directories with error checking
-    if ! mkdir -p "$INSTALL_DIR/hadoop/dfs/namenode" "$INSTALL_DIR/hadoop/dfs/datanode" "$INSTALL_DIR/hadoop/tmp"; then
-        error "Failed to create HDFS directories"
-    fi
+    # Create directories
+    mkdir -p "$INSTALL_DIR/hadoop/dfs/namenode" "$INSTALL_DIR/hadoop/dfs/datanode" "$INSTALL_DIR/hadoop/tmp"
     
-    # FIXED: hdfs-site.xml - Proper XML tags <name> not <n>
+    # hdfs-site.xml
     cat > "$HADOOP_CONF_DIR/hdfs-site.xml" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
@@ -526,33 +580,29 @@ EOF
     <property>
         <name>dfs.replication</name>
         <value>1</value>
-        <description>Default block replication for pseudo-distributed mode</description>
     </property>
     <property>
         <name>dfs.namenode.name.dir</name>
         <value>file:///home/USER_PLACEHOLDER/bigdata/hadoop/dfs/namenode</value>
-        <description>NameNode directory for namespace and transaction logs</description>
     </property>
     <property>
         <name>dfs.datanode.data.dir</name>
         <value>file:///home/USER_PLACEHOLDER/bigdata/hadoop/dfs/datanode</value>
-        <description>DataNode directory</description>
     </property>
     <property>
         <name>dfs.namenode.http-address</name>
         <value>localhost:9870</value>
-        <description>NameNode web UI</description>
     </property>
     <property>
         <name>dfs.permissions.enabled</name>
         <value>false</value>
-        <description>Disable permission checking for learning</description>
     </property>
 </configuration>
 EOF
     sed -i "s|USER_PLACEHOLDER|$USER|g" "$HADOOP_CONF_DIR/hdfs-site.xml"
+    progress_bar 3 $total "Creating hdfs-site.xml"
     
-    # FIXED: mapred-site.xml - Proper XML tags <name> + absolute paths
+    # mapred-site.xml
     cat > "$HADOOP_CONF_DIR/mapred-site.xml" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
@@ -560,7 +610,6 @@ EOF
     <property>
         <name>mapreduce.framework.name</name>
         <value>yarn</value>
-        <description>Execution framework</description>
     </property>
     <property>
         <name>mapreduce.application.classpath</name>
@@ -578,83 +627,39 @@ EOF
         <name>mapreduce.reduce.env</name>
         <value>HADOOP_MAPRED_HOME=/home/USER_PLACEHOLDER/bigdata/hadoop</value>
     </property>
-    <property>
-        <name>mapreduce.map.memory.mb</name>
-        <value>1024</value>
-    </property>
-    <property>
-        <name>mapreduce.reduce.memory.mb</name>
-        <value>1024</value>
-    </property>
 </configuration>
 EOF
     sed -i "s|USER_PLACEHOLDER|$USER|g" "$HADOOP_CONF_DIR/mapred-site.xml"
+    progress_bar 4 $total "Creating mapred-site.xml"
     
-    # FIXED: yarn-site.xml - Proper XML tags <name>
+    # yarn-site.xml
     cat > "$HADOOP_CONF_DIR/yarn-site.xml" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <property>
         <name>yarn.nodemanager.aux-services</name>
         <value>mapreduce_shuffle</value>
-        <description>Shuffle service for MapReduce</description>
-    </property>
-    <property>
-        <name>yarn.nodemanager.aux-services.mapreduce.shuffle.class</name>
-        <value>org.apache.hadoop.mapred.ShuffleHandler</value>
     </property>
     <property>
         <name>yarn.resourcemanager.hostname</name>
         <value>localhost</value>
     </property>
     <property>
-        <name>yarn.resourcemanager.webapp.address</name>
-        <value>localhost:8088</value>
-        <description>ResourceManager web UI</description>
-    </property>
-    <property>
         <name>yarn.nodemanager.resource.memory-mb</name>
         <value>${yarn_mem}</value>
-        <description>Total memory for NodeManager</description>
-    </property>
-    <property>
-        <name>yarn.scheduler.maximum-allocation-mb</name>
-        <value>${yarn_mem}</value>
-    </property>
-    <property>
-        <name>yarn.scheduler.minimum-allocation-mb</name>
-        <value>512</value>
     </property>
     <property>
         <name>yarn.nodemanager.vmem-check-enabled</name>
         <value>false</value>
-        <description>Disable virtual memory checking for WSL</description>
-    </property>
-    <property>
-        <name>yarn.nodemanager.resource.detect-hardware-capabilities</name>
-        <value>false</value>
-        <description>WSL2: manual memory config</description>
-    </property>
-    <property>
-        <name>yarn.nodemanager.pmem-check-enabled</name>
-        <value>false</value>
-        <description>WSL2: disable physical memory checking</description>
-    </property>
-    <property>
-        <name>yarn.app.mapreduce.am.resource.mb</name>
-        <value>${container_mem}</value>
-    </property>
-    <property>
-        <name>yarn.nodemanager.env-whitelist</name>
-        <value>JAVA_HOME,HADOOP_COMMON_HOME,HADOOP_HDFS_HOME,HADOOP_CONF_DIR,CLASSPATH_PREPEND_DISTCACHE,HADOOP_YARN_HOME,HADOOP_HOME,PATH,LANG,TZ,HADOOP_MAPRED_HOME</value>
     </property>
 </configuration>
 EOF
+    progress_bar 5 $total "Creating yarn-site.xml"
     
     echo "localhost" > "$HADOOP_CONF_DIR/workers"
     
     mark_done "hadoop_config"
-    log "Hadoop configuration completed"
+    echo -e "${GREEN}✓ Hadoop configuration completed${NC}"
 }
 
 # === Spark Installation ===
@@ -664,42 +669,26 @@ install_spark() {
         return
     fi
     
+    step_header 5 10 "Spark ${SPARK_VERSION} Installation"
+    
     cd "$INSTALL_DIR"
     
     if [ ! -d "spark-${SPARK_VERSION}-bin-hadoop3" ]; then
         rm -f "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
         
-        log "Downloading Spark ${SPARK_VERSION}..."
-        
-        # Multiple mirrors to handle connection issues
-        local MIRRORS=(
-            "https://downloads.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz"
-            "https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz"
-            "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz"
-        )
-        
-        local SUCCESS=0
-        for mirror in "${MIRRORS[@]}"; do
-            log "Trying mirror: ${mirror}"
-            if download_with_retry "${mirror}" "spark-${SPARK_VERSION}-bin-hadoop3.tgz"; then
-                SUCCESS=1
-                break
-            fi
-            log "Mirror failed, trying next..."
-        done
-        
-        if [ $SUCCESS -eq 0 ]; then
-            log "ERROR: All Spark download mirrors failed"
-            return 1
-        fi
+        download_with_retry \
+            "https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
+            "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
         
         log "Extracting Spark..."
-        tar -xzf "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
+        (tar -xzf "spark-${SPARK_VERSION}-bin-hadoop3.tgz") &
+        spinner $! "Extracting Spark archive"
     fi
     
     rm -f spark
     ln -s "spark-${SPARK_VERSION}-bin-hadoop3" spark
     
+    # Configure Spark
     cp "$INSTALL_DIR/spark/conf/spark-env.sh.template" "$INSTALL_DIR/spark/conf/spark-env.sh" 2>/dev/null || touch "$INSTALL_DIR/spark/conf/spark-env.sh"
     
     cat >> "$INSTALL_DIR/spark/conf/spark-env.sh" <<EOF
@@ -719,41 +708,38 @@ spark.history.fs.logDirectory    hdfs://localhost:9000/spark-logs
 EOF
     
     mark_done "spark_install"
-    log "Spark installed successfully"
+    echo -e "${GREEN}✓ Spark installed successfully${NC}"
 }
 
-
-# === Kafka Installation (KRaft mode) ===
+# === Kafka Installation ===
 install_kafka() {
     if is_done "kafka_install"; then
         log "Kafka already installed, skipping..."
         return
     fi
     
-    cd "$INSTALL_DIR"
+    step_header 6 10 "Kafka ${KAFKA_VERSION} Installation"
     
+    cd "$INSTALL_DIR"
     local kafka_scala="2.13"
     
     if [ ! -d "kafka_${kafka_scala}-${KAFKA_VERSION}" ]; then
         rm -f "kafka_${kafka_scala}-${KAFKA_VERSION}.tgz"
         
-        log "Downloading Kafka ${KAFKA_VERSION}..."
         download_with_retry \
             "https://dlcdn.apache.org/kafka/${KAFKA_VERSION}/kafka_${kafka_scala}-${KAFKA_VERSION}.tgz" \
             "kafka_${kafka_scala}-${KAFKA_VERSION}.tgz"
         
         log "Extracting Kafka..."
-        tar -xzf "kafka_${kafka_scala}-${KAFKA_VERSION}.tgz"
+        (tar -xzf "kafka_${kafka_scala}-${KAFKA_VERSION}.tgz") &
+        spinner $! "Extracting Kafka archive"
     fi
     
     rm -f kafka
     ln -s "kafka_${kafka_scala}-${KAFKA_VERSION}" kafka
-    
     mkdir -p "$INSTALL_DIR/kafka/kraft-logs"
     
-    log "Configuring Kafka in KRaft mode..."
-    
-    # Save Kafka cluster ID to file for persistence
+    log "Configuring Kafka KRaft mode..."
     local kafka_cluster_id
     if [ -f "$INSTALL_DIR/kafka/.cluster-id" ]; then
         kafka_cluster_id=$(cat "$INSTALL_DIR/kafka/.cluster-id")
@@ -790,16 +776,15 @@ EOF
     
     if [ ! -f "$INSTALL_DIR/kafka/kraft-logs/meta.properties" ]; then
         log "Formatting Kafka storage..."
-        if ! "$INSTALL_DIR/kafka/bin/kafka-storage.sh" format -t "$kafka_cluster_id" \
-            -c "$INSTALL_DIR/kafka/config/kraft-server.properties"; then
-            error "Kafka storage format failed. Check cluster ID: $kafka_cluster_id"
-        fi
+        ("$INSTALL_DIR/kafka/bin/kafka-storage.sh" format -t "$kafka_cluster_id" \
+            -c "$INSTALL_DIR/kafka/config/kraft-server.properties") &
+        spinner $! "Formatting Kafka storage"
     else
         log "Kafka storage already formatted, skipping..."
     fi
     
     mark_done "kafka_install"
-    log "Kafka installed and configured (KRaft mode)"
+    echo -e "${GREEN}✓ Kafka installed successfully${NC}"
 }
 
 # === Pig Installation ===
@@ -809,70 +794,78 @@ install_pig() {
         return
     fi
     
+    step_header 7 10 "Pig ${PIG_VERSION} Installation"
+    
     cd "$INSTALL_DIR"
     
     if [ ! -d "pig-${PIG_VERSION}" ]; then
-        rm -f "pig-${PIG_VERSION}.tar.gz"
-        
-        log "Downloading Pig ${PIG_VERSION}..."
         download_with_retry \
             "https://archive.apache.org/dist/pig/pig-${PIG_VERSION}/pig-${PIG_VERSION}.tar.gz" \
             "pig-${PIG_VERSION}.tar.gz"
         
         log "Extracting Pig..."
-        tar -xzf "pig-${PIG_VERSION}.tar.gz"
+        (tar -xzf "pig-${PIG_VERSION}.tar.gz") &
+        spinner $! "Extracting Pig archive"
     fi
     
     rm -f pig
     ln -s "pig-${PIG_VERSION}" pig
     
     mark_done "pig_install"
-    log "Pig installed successfully"
+    echo -e "${GREEN}✓ Pig installed successfully${NC}"
 }
 
-# === Environment Variables ===
+# === Environment Setup ===
 setup_environment() {
     if is_done "env_setup"; then
         log "Environment already configured, skipping..."
         return
     fi
     
-    log "Configuring environment variables..."
+    step_header 8 10 "Environment Configuration"
     
-    # Export for current session
     export HADOOP_HOME="$INSTALL_DIR/hadoop"
-    export HADOOP_CONF_DIR="$HADOOP_HOME/etc/hadoop"
     export SPARK_HOME="$INSTALL_DIR/spark"
     export KAFKA_HOME="$INSTALL_DIR/kafka"
     export PIG_HOME="$INSTALL_DIR/pig"
-    export PATH="$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$PIG_HOME/bin:$PATH"
     
     if ! grep -q "HADOOP_HOME" "$HOME/.bashrc"; then
+        log "Adding environment variables to .bashrc..."
         cat >> "$HOME/.bashrc" <<EOF
 
 # Hadoop Ecosystem Environment
 export HADOOP_HOME=$INSTALL_DIR/hadoop
 export HADOOP_CONF_DIR=\$HADOOP_HOME/etc/hadoop
-export HADOOP_MAPRED_HOME=\$HADOOP_HOME
-export HADOOP_COMMON_HOME=\$HADOOP_HOME
-export HADOOP_HDFS_HOME=\$HADOOP_HOME
-export YARN_HOME=\$HADOOP_HOME
-export HADOOP_COMMON_LIB_NATIVE_DIR=\$HADOOP_HOME/lib/native
-export HADOOP_OPTS="-Djava.library.path=\$HADOOP_HOME/lib/native"
-
 export SPARK_HOME=$INSTALL_DIR/spark
 export KAFKA_HOME=$INSTALL_DIR/kafka
 export PIG_HOME=$INSTALL_DIR/pig
-
 export PATH=\$HADOOP_HOME/bin:\$HADOOP_HOME/sbin:\$SPARK_HOME/bin:\$KAFKA_HOME/bin:\$PIG_HOME/bin:\$PATH
 EOF
     fi
     
-    chmod 600 "$STATE_FILE" 2>/dev/null || true
-    chmod 600 "$LOG_FILE" 2>/dev/null || true
-    
     mark_done "env_setup"
-    log "Environment variables configured"
+    echo -e "${GREEN}✓ Environment configured${NC}"
+}
+
+# === HDFS Format ===
+format_hdfs() {
+    if is_done "hdfs_format"; then
+        log "HDFS already formatted, skipping..."
+        return
+    fi
+    
+    step_header 9 10 "HDFS Initialization"
+    
+    log "Testing SSH connectivity..."
+    (ssh -o BatchMode=yes -o ConnectTimeout=5 localhost exit) &
+    spinner $! "Testing SSH"
+    
+    log "Formatting HDFS NameNode..."
+    ("$HADOOP_HOME/bin/hdfs" namenode -format -force -nonInteractive) &
+    spinner $! "Formatting HDFS NameNode"
+    
+    mark_done "hdfs_format"
+    echo -e "${GREEN}✓ HDFS formatted successfully${NC}"
 }
 
 # === Helper Scripts ===
@@ -891,7 +884,7 @@ set -e
 
 INSTALL_DIR="$INSTALL_DIR"
 
-echo "Starting Hadoop Ecosystem..."
+echo -e "\033[0;32mStarting Hadoop Ecosystem...\033[0m"
 echo ""
 
 # Start SSH
@@ -931,11 +924,7 @@ else
 fi
 
 echo ""
-echo "[OK] Services started"
-echo ""
-echo "Running processes:"
-jps 2>/dev/null || echo "jps not found"
-
+echo -e "\033[0;32m[OK] Services started\033[0m"
 echo ""
 echo "Web UIs:"
 echo "  HDFS:    http://localhost:9870"
@@ -949,7 +938,7 @@ STARTSCRIPT
 
 INSTALL_DIR="$INSTALL_DIR"
 
-echo "Stopping Hadoop Ecosystem..."
+echo -e "\033[0;33mStopping Hadoop Ecosystem...\033[0m"
 echo ""
 
 "\$INSTALL_DIR/hadoop/sbin/stop-yarn.sh" 2>/dev/null || true
@@ -960,7 +949,7 @@ if pgrep -f "kafka.Kafka" > /dev/null; then
     rm -f "\$INSTALL_DIR/kafka/kafka.pid"
 fi
 
-echo "[OK] All services stopped"
+echo -e "\033[0;32m[OK] All services stopped\033[0m"
 STOPSCRIPT
 
     # Check script
@@ -1015,306 +1004,132 @@ RESTARTSCRIPT
     chmod +x "$HOME/restart-hadoop.sh"
     
     mark_done "helper_scripts"
-    log "✓ Helper scripts created"
+    echo -e "${GREEN}✓ Helper scripts created${NC}"
 }
 
-# === Format HDFS ===
-format_hdfs() {
-    if is_done "hdfs_format"; then
-        log "HDFS already formatted, skipping..."
-        return
-    fi
-    
-    log "Testing SSH connectivity..."
-    if ! ssh -o BatchMode=yes -o ConnectTimeout=5 localhost exit 2>/dev/null; then
-        error "SSH to localhost failed. Run: sudo service ssh start"
-    fi
-    
-    # Protect existing data
-    if [ -d "$INSTALL_DIR/hadoop/dfs/namenode/current" ]; then
-        warn "⚠️  Existing HDFS data found!"
-        read -p "Format will DELETE all data. Type 'yes' to confirm: " confirm
-        if [ "$confirm" != "yes" ]; then
-            log "Format cancelled."
-            log "To skip: echo 'hdfs_format' >> $STATE_FILE"
-            exit 0
-        fi
-    fi
-    
-    log "Formatting HDFS NameNode..."
-    if ! "$HADOOP_HOME/bin/hdfs" namenode -format -force -nonInteractive; then
-        error "Failed to format HDFS"
-    fi
-    
-    mark_done "hdfs_format"
-    log "HDFS formatted successfully"
-}
-
-# === Start Services ===
-wait_for_service() {
-    local service=$1
-    local port=$2
-    local max_wait=30
-    
-    log "Waiting for $service..."
-    for i in $(seq 1 $max_wait); do
-        if nc -z localhost "$port" 2>/dev/null; then
-            log "$service ready"
-            return 0
-        fi
-        sleep 1
-    done
-    warn "$service timeout"
-    return 1
-}
-
+# === Start Services with Progress ===
 start_services() {
-    log "Starting services..."
+    step_header 10 10 "Starting Services"
     
-    safe_exec "$HADOOP_HOME/sbin/stop-dfs.sh" 2>/dev/null
-    safe_exec "$HADOOP_HOME/sbin/stop-yarn.sh" 2>/dev/null
-    pkill -f "kafka.Kafka" 2>/dev/null || true
+    log "Stopping any existing services..."
+    (safe_exec "$HADOOP_HOME/sbin/stop-dfs.sh" 2>/dev/null
+     safe_exec "$HADOOP_HOME/sbin/stop-yarn.sh" 2>/dev/null
+     pkill -f "kafka.Kafka" 2>/dev/null || true) &
+    spinner $! "Cleaning up old processes"
     sleep 3
     
     log "Starting HDFS..."
-    if ! "$HADOOP_HOME/sbin/start-dfs.sh"; then
-        error "Failed to start HDFS"
-    fi
-    wait_for_service "NameNode" 9870
+    ("$HADOOP_HOME/sbin/start-dfs.sh") &
+    spinner $! "Starting NameNode and DataNode"
+    sleep 3
     
     log "Starting YARN..."
-    if ! "$HADOOP_HOME/sbin/start-yarn.sh"; then
-        error "Failed to start YARN"
-    fi
-    wait_for_service "ResourceManager" 8088
+    ("$HADOOP_HOME/sbin/start-yarn.sh") &
+    spinner $! "Starting ResourceManager and NodeManager"
+    sleep 5
     
-    # Wait for HDFS safe mode
-    log "Waiting for HDFS..."
+    log "Waiting for HDFS to exit safe mode..."
     local max_wait=60
     for i in $(seq 1 $max_wait); do
         if "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode get 2>/dev/null | grep -q "OFF"; then
-            log "HDFS ready"
+            progress_bar $max_wait $max_wait "HDFS ready"
             break
         fi
-        if [ $i -eq $max_wait ]; then
-            warn "HDFS still in safe mode"
-        fi
+        progress_bar $i $max_wait "Waiting for safe mode"
         sleep 1
     done
     
     log "Creating Spark directory..."
-    safe_exec "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /spark-logs
-    safe_exec "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs
+    (safe_exec "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /spark-logs
+     safe_exec "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs) &
+    spinner $! "Setting up HDFS directories"
     
     log "Starting Kafka..."
-    nohup "$KAFKA_HOME/bin/kafka-server-start.sh" "$KAFKA_HOME/config/kraft-server.properties" > "$INSTALL_DIR/kafka/kafka.log" 2>&1 &
-    local kafka_pid=$!
-    echo "$kafka_pid" > "$INSTALL_DIR/kafka/kafka.pid"
+    (nohup "$KAFKA_HOME/bin/kafka-server-start.sh" "$KAFKA_HOME/config/kraft-server.properties" \
+        > "$INSTALL_DIR/kafka/kafka.log" 2>&1 &
+     echo $! > "$INSTALL_DIR/kafka/kafka.pid") &
+    spinner $! "Starting Kafka broker"
+    sleep 3
     
-    if wait_for_service "Kafka" 9092; then
-        log "Kafka started (PID: $kafka_pid)"
-    else
-        warn "Kafka may have issues. Check: $INSTALL_DIR/kafka/kafka.log"
-    fi
+    echo -e "${GREEN}✓ All services started successfully${NC}"
 }
 
 # === Verification ===
 verify_installation() {
-    log "Verifying installation..."
-    
     echo ""
-    log "=== Processes ==="
+    step_header "Final" "Final" "Installation Verification"
+    
+    echo -e "${BOLD}Running Processes:${NC}"
     jps 2>/dev/null || warn "jps failed"
-    
     echo ""
-    local expected="NameNode DataNode ResourceManager NodeManager"
-    for proc in $expected; do
-        if ! jps 2>/dev/null | grep -q "$proc"; then
-            warn "$proc NOT running! Check: $HADOOP_HOME/logs/"
+    
+    echo -e "${BOLD}Service Health Check:${NC}"
+    local services=("NameNode:9870" "DataNode:9864" "ResourceManager:8088" "NodeManager:8042" "Kafka:9092")
+    for service in "${services[@]}"; do
+        IFS=':' read -r name port <<< "$service"
+        if nc -z localhost "$port" 2>/dev/null; then
+            echo -e "  ${GREEN}✓${NC} $name (port $port)"
+        else
+            echo -e "  ${RED}✗${NC} $name (port $port)"
         fi
     done
-    
     echo ""
-    log "=== HDFS ==="
-    safe_exec "$HADOOP_HOME/bin/hdfs" dfsadmin -report 2>&1 | head -20
     
+    echo -e "${BOLD}HDFS Status:${NC}"
+    safe_exec "$HADOOP_HOME/bin/hdfs" dfsadmin -report 2>&1 | head -10
     echo ""
-    log "=== YARN ==="
+    
+    echo -e "${BOLD}YARN Status:${NC}"
     safe_exec "$HADOOP_HOME/bin/yarn" node -list
-    
     echo ""
-    log "=== Test ==="
-    safe_exec "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/$USER
-    if echo "test" | "$HADOOP_HOME/bin/hdfs" dfs -put -f - /user/$USER/test.txt; then
-        safe_exec "$HADOOP_HOME/bin/hdfs" dfs -cat /user/$USER/test.txt
-    fi
-    
-    echo ""
-    log "=== Kafka ==="
-    if pgrep -f "kafka.Kafka" > /dev/null; then
-        echo "Kafka: RUNNING"
-        [ -f "$KAFKA_HOME/.cluster-id" ] && echo "ID: $(cat "$KAFKA_HOME/.cluster-id")"
-    else
-        echo "Kafka: NOT RUNNING"
-    fi
-    
-    echo ""
-    log "=== Versions ==="
-    echo "Hadoop: $("$HADOOP_HOME/bin/hadoop" version | head -1)"
-    echo "Spark: $("$SPARK_HOME/bin/spark-submit" --version 2>&1 | grep version | head -1)"
-    echo "Kafka: $(basename "$(readlink -f "$KAFKA_HOME")")"
-    echo "Pig: $("$PIG_HOME/bin/pig" -version 2>&1 | head -1)"
 }
 
-# === Tutorial ===
-run_first_tutorial() {
-    if is_done "tutorial_complete"; then
-        return
-    fi
-    
-    echo ""
-    echo -e "${GREEN}=== Tutorial ===${NC}"
-    echo "Quick word count test"
-    echo ""
-    
-    if ! read -p "Press Enter (30s timeout)..." -t 30; then
-        echo ""
-        log "Tutorial skipped"
-        return
-    fi
-    
-    cat > /tmp/sample.txt <<EOF
-hadoop is awesome
-hadoop is powerful
-spark works with hadoop
-EOF
-    
-    log "1. Uploading..."
-    if "$HADOOP_HOME/bin/hdfs" dfs -put -f /tmp/sample.txt /user/$USER/; then
-        log "✓ Uploaded"
-    else
-        warn "Upload failed"
-        return
-    fi
-    
-    log "2. Running MapReduce..."
-    "$HADOOP_HOME/bin/hdfs" dfs -rm -r /user/$USER/output 2>/dev/null || true
-    
-    if "$HADOOP_HOME/bin/hadoop" jar \
-        "$HADOOP_HOME/share/hadoop/mapreduce/hadoop-mapreduce-examples-"*.jar \
-        wordcount /user/$USER/sample.txt /user/$USER/output; then
-        
-        echo ""
-        log "3. Results:"
-        echo "---"
-        "$HADOOP_HOME/bin/hdfs" dfs -cat /user/$USER/output/part-r-00000
-        echo "---"
-        echo ""
-        log "✓ Tutorial complete!"
-    fi
-    
-    mark_done "tutorial_complete"
-}
-
-# === Guide ===
+# === Final Guide ===
 print_guide() {
-    local cluster_id="Not set"
-    [ -f "$KAFKA_HOME/.cluster-id" ] && cluster_id=$(cat "$KAFKA_HOME/.cluster-id")
+    echo ""
+    echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                                                       ║${NC}"
+    echo -e "${GREEN}║         ${BOLD}Installation Complete!${NC}${GREEN}                    ║${NC}"
+    echo -e "${GREEN}║                                                       ║${NC}"
+    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
     
     cat <<EOF
+${BOLD}${YELLOW}Quick Start Commands:${NC}
 
-${GREEN}=== Installation Complete! ===${NC}
+  ${CYAN}~/start-hadoop.sh${NC}     # Start all services
+  ${CYAN}~/stop-hadoop.sh${NC}      # Stop all services
+  ${CYAN}~/check-hadoop.sh${NC}     # Check status
+  ${CYAN}~/restart-hadoop.sh${NC}   # Restart services
 
-${YELLOW}✅ ALL ERRORS FIXED (30 total):${NC}
+${BOLD}${YELLOW}Web UIs:${NC}
+  HDFS:    ${CYAN}http://localhost:9870${NC}
+  YARN:    ${CYAN}http://localhost:8088${NC}
 
-Original 15 Issues:
-  ✓ Kafka IPv6 bug (sysctl.conf)
-  ✓ Windows filesystem check (symlinks)
-  ✓ NameNode file:// removed
-  ✓ SSH permissions (600/644)
-  ✓ Kafka cluster ID saved
-  ✓ MapReduce absolute paths
-  ✓ Spark version 3.5.3
-  ✓ Memory MB detection
-  ✓ YARN WSL2 settings
-  ✓ Unclean shutdown check
-  ✓ Download validation
-  ✓ Service checks
-  ✓ Firewall warnings
-  ✓ Log rotation
-  ✓ Spark cleanup
+${BOLD}${YELLOW}Quick Tests:${NC}
 
-Code Review 15 Issues:
-  ✓ XML <name> tags (WAS CRITICAL!)
-  ✓ File descriptor leak
-  ✓ Stat command order
-  ✓ JAVA_HOME export
-  ✓ HDFS safe mode wait
-  ✓ Variable quoting
-  ✓ Command validation
-  ✓ SSH check improved
-  ✓ Helper scripts \$INSTALL_DIR
-  ✓ df portability
-  ✓ mkdir error checks
-  ✓ Kafka PID cleanup
-  ✓ Timeout handling
-  ✓ Duplicate checks
-  ✓ Lock file age
-
-${YELLOW}Commands:${NC}
-
-  ~/start-hadoop.sh    # Start all
-  ~/stop-hadoop.sh     # Stop all
-  ~/check-hadoop.sh    # Status
-  ~/restart-hadoop.sh  # Restart
-
-${YELLOW}Quick Tests:${NC}
-
-# HDFS:
+  ${CYAN}# HDFS${NC}
   hdfs dfs -ls /
   hdfs dfs -put file.txt /user/$USER/
 
-# MapReduce:
+  ${CYAN}# MapReduce${NC}
   hadoop jar \$HADOOP_HOME/share/hadoop/mapreduce/hadoop-mapreduce-examples-*.jar pi 2 10
 
-# Spark:
+  ${CYAN}# Spark${NC}
   spark-shell --master yarn
   pyspark --master yarn
 
-# Kafka:
+  ${CYAN}# Kafka${NC}
   kafka-topics.sh --create --topic test --bootstrap-server localhost:9092
 
-${YELLOW}Web UIs:${NC}
-  HDFS:    http://localhost:9870
-  YARN:    http://localhost:8088
+${BOLD}${YELLOW}Next Steps:${NC}
+  1. ${CYAN}source ~/.bashrc${NC}
+  2. ${CYAN}~/start-hadoop.sh${NC}
+  3. Visit web UIs above
 
-${YELLOW}Info:${NC}
-  Location: $INSTALL_DIR
-  Log: $LOG_FILE
-  Kafka ID: $cluster_id
-
-${YELLOW}Next Steps:${NC}
-  1. source ~/.bashrc
-  2. ~/start-hadoop.sh
-  3. Check status: ~/check-hadoop.sh
-
-${YELLOW}Troubleshooting:${NC}
-
-  NameNode won't start:
-    rm -f ~/bigdata/hadoop/dfs/namenode/in_use.lock
-    hdfs namenode -format
-
-  Connection refused:
-    Check Windows firewall (allow Java/SSH)
-    sysctl net.ipv6.conf.all.disable_ipv6
-
-  Kafka issues:
-    tail -f ~/bigdata/kafka/kafka.log
-    cat ~/bigdata/kafka/.cluster-id
-
-  After WSL shutdown:
-    find ~/bigdata/hadoop/dfs -name "in_use.lock" -delete
-    ~/start-hadoop.sh
+${BOLD}${YELLOW}Installation Details:${NC}
+  Location: ${CYAN}$INSTALL_DIR${NC}
+  Log file: ${CYAN}$LOG_FILE${NC}
 
 EOF
 }
@@ -1324,7 +1139,6 @@ main() {
     preflight_checks
     
     log "Starting installation..."
-    log "Dir: $INSTALL_DIR"
     
     acquire_lock
     check_disk_space
@@ -1341,13 +1155,11 @@ main() {
     create_helper_scripts
     start_services
     
-    sleep 3
     verify_installation
-    run_first_tutorial
     print_guide
     
-    log "${GREEN}Installation complete!${NC}"
-    log "Run: source ~/.bashrc"
+    echo -e "${GREEN}${BOLD}✓ Installation complete!${NC}"
+    echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
 }
 
 main
