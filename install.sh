@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WSL Hadoop Ecosystem Installation Script
+# WSL Hadoop Ecosystem Installation Script -
 # Purpose: Student learning environment for Hadoop ecosystem
 # Installs: Hadoop, YARN, Spark, Kafka (KRaft), Pig
 
@@ -877,9 +877,24 @@ install_pig() {
     cd "$INSTALL_DIR"
     
     if [ ! -d "pig-0.17.0" ]; then
-        download_with_retry \
-            "https://archive.apache.org/dist/pig/pig-0.17.0/pig-0.17.0.tar.gz" \
-            "pig-0.17.0.tar.gz"
+        rm -f "pig-0.17.0.tar.gz"
+        
+        # Direct download without retry mirrors (archive.apache.org doesn't work with mirror logic)
+        echo -e "${BLUE}⬇${NC}  Downloading: pig-0.17.0.tar.gz"
+        log "Downloading from Apache Archive..."
+        
+        if ! wget --progress=bar:force --timeout=300 --tries=3 \
+                -O "pig-0.17.0.tar.gz" \
+                "https://archive.apache.org/dist/pig/pig-0.17.0/pig-0.17.0.tar.gz" 2>&1; then
+            error "Failed to download Pig 0.17.0. Please check your internet connection."
+        fi
+        
+        # Verify download
+        if [ ! -f "pig-0.17.0.tar.gz" ] || [ $(stat -c%s "pig-0.17.0.tar.gz" 2>/dev/null || echo 0) -lt 1000000 ]; then
+            error "Download failed or file is corrupted."
+        fi
+        
+        echo -e "${GREEN}✓${NC} Download complete"
         
         log "Extracting Pig..."
         (tar -xzf "pig-0.17.0.tar.gz") &
@@ -891,6 +906,43 @@ install_pig() {
     
     mark_done "pig_install"
     echo -e "${GREEN}✓ Pig 0.17.0 installed successfully${NC}"
+}
+
+# === Environment Setup ===
+setup_environment() {
+    if is_done "env_setup"; then
+        log "Environment already configured, skipping..."
+        return
+    fi
+    
+    step_header 8 10 "Environment Configuration"
+    
+    export HADOOP_HOME="$INSTALL_DIR/hadoop"
+    export SPARK_HOME="$INSTALL_DIR/spark"
+    export KAFKA_HOME="$INSTALL_DIR/kafka"
+    export PIG_HOME="$INSTALL_DIR/pig"
+    
+    # Ensure Java 17 is available for Kafka
+    if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
+        export JAVA_17_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+    fi
+    
+    if ! grep -q "HADOOP_HOME" "$HOME/.bashrc"; then
+        log "Adding environment variables to .bashrc..."
+        cat >> "$HOME/.bashrc" <<EOF
+
+# Hadoop Ecosystem Environment
+export HADOOP_HOME=$INSTALL_DIR/hadoop
+export HADOOP_CONF_DIR=\$HADOOP_HOME/etc/hadoop
+export SPARK_HOME=$INSTALL_DIR/spark
+export KAFKA_HOME=$INSTALL_DIR/kafka
+export PIG_HOME=$INSTALL_DIR/pig
+export PATH=\$HADOOP_HOME/bin:\$HADOOP_HOME/sbin:\$SPARK_HOME/bin:\$KAFKA_HOME/bin:\$PIG_HOME/bin:\$PATH
+EOF
+    fi
+    
+    mark_done "env_setup"
+    echo -e "${GREEN}✓ Environment configured${NC}"
 }
 
 # === HDFS Format ===
