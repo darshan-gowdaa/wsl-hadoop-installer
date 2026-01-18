@@ -382,27 +382,56 @@ setup_system() {
         sudo sysctl -p >/dev/null 2>&1 || true
     fi
     
-    # SSH setup
-    if [ ! -f "$HOME/.ssh/id_rsa" ]; then
-        log "Creating SSH keys..."
-        (ssh-keygen -t rsa -P '' -f "$HOME/.ssh/id_rsa" -q) &
-        spinner $! "Generating SSH keys"
-        cat "$HOME/.ssh/id_rsa.pub" >> "$HOME/.ssh/authorized_keys"
-    fi
-    
-    # Fix permissions
-    log "Setting SSH permissions..."
-    chmod 700 ~/.ssh
-    chmod 600 ~/.ssh/id_rsa
-    chmod 644 ~/.ssh/id_rsa.pub
-    chmod 600 ~/.ssh/authorized_keys
-    
-    # Start SSH
-    if ! pgrep -x sshd >/dev/null; then
-        log "Starting SSH service..."
-        (sudo service ssh start) &
-        spinner $! "Starting SSH"
-    fi
+    ## SSH setup
+if [ ! -f "$HOME/.ssh/id_rsa" ]; then
+    log "Creating SSH keys..."
+    (ssh-keygen -t rsa -P '' -f "$HOME/.ssh/id_rsa" -q) &
+    spinner $! "Generating SSH keys"
+    cat "$HOME/.ssh/id_rsa.pub" >> "$HOME/.ssh/authorized_keys"
+fi
+
+# Fix permissions
+log "Setting SSH permissions..."
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/id_rsa
+chmod 644 ~/.ssh/id_rsa.pub
+chmod 600 ~/.ssh/authorized_keys
+
+# ===== FIX: ADD SSH HOST KEYS =====
+log "Adding localhost to known_hosts..."
+mkdir -p ~/.ssh
+ssh-keyscan -H localhost >> ~/.ssh/known_hosts 2>/dev/null || true
+ssh-keyscan -H 0.0.0.0 >> ~/.ssh/known_hosts 2>/dev/null || true
+ssh-keyscan -H 127.0.0.1 >> ~/.ssh/known_hosts 2>/dev/null || true
+
+# ===== FIX: CONFIGURE SSH TO SKIP HOST KEY CHECKING FOR LOCALHOST =====
+log "Configuring SSH client..."
+if ! grep -q "StrictHostKeyChecking no" ~/.ssh/config 2>/dev/null; then
+    cat >> ~/.ssh/config <<'SSHCONFIG'
+Host localhost
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+    LogLevel ERROR
+
+Host 127.0.0.1
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+    LogLevel ERROR
+
+Host 0.0.0.0
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+    LogLevel ERROR
+SSHCONFIG
+    chmod 600 ~/.ssh/config
+fi
+
+# Start SSH
+if ! pgrep -x sshd >/dev/null; then
+    log "Starting SSH service..."
+    (sudo service ssh start) &
+    spinner $! "Starting SSH"
+fi
     
     mark_done "system_setup"
     echo -e "${GREEN}✓ System setup completed${NC}"
@@ -976,7 +1005,7 @@ format_hdfs() {
     step_header 9 10 "HDFS Initialization"
     
     log "Testing SSH connectivity..."
-    (ssh -o BatchMode=yes -o ConnectTimeout=5 localhost exit) &
+    (ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 localhost exit) &
     spinner $! "Testing SSH"
     
     log "Formatting HDFS NameNode..."
