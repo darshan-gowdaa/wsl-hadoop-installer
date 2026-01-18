@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WSL Hadoop Ecosystem Installation Script!!
+# WSL Hadoop Ecosystem Installation Script
 # Purpose: Student learning environment for Hadoop ecosystem
 # Installs: Hadoop, YARN, Spark, Kafka (KRaft), Pig
 
@@ -1160,7 +1160,7 @@ RESTARTSCRIPT
 # === Start Services with Progress ===
 start_services() {
     step_header 10 10 "Starting Services"
-
+    
     export HADOOP_HOME="${HADOOP_HOME:-$INSTALL_DIR/hadoop}"
     export HADOOP_CONF_DIR="${HADOOP_CONF_DIR:-$HADOOP_HOME/etc/hadoop}"
     export KAFKA_HOME="${KAFKA_HOME:-$INSTALL_DIR/kafka}"
@@ -1195,13 +1195,13 @@ start_services() {
         progress_bar $i $max_wait "Waiting for safe mode"
         sleep 1
     done
-
+    
     if [ "$safemode_exited" = false ]; then
         warn "HDFS safe mode timeout after ${max_wait}s - forcing exit"
         "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode leave 2>/dev/null || true
         sleep 2
     fi
-
+    
     log "Creating Spark directory..."
     sleep 2
     
