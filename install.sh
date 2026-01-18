@@ -50,9 +50,9 @@ spinner() {
     local exit_code=$?
     
     if [ $exit_code -eq 0 ]; then
-        printf "\r${GREEN}✓${NC} ${message}... ${GREEN}Done${NC}\n"
+        printf "\r${GREEN}[OK]${NC} ${message}... ${GREEN}Done${NC}\n"
     else
-        printf "\r${RED}✗${NC} ${message}... ${RED}Failed${NC}\n"
+        printf "\r${RED}[FAILED]${NC} ${message}... ${RED}Failed${NC}\n"
     fi
     
     return $exit_code
@@ -134,7 +134,7 @@ preflight_checks() {
     echo ""
     echo -e "${GREEN}╔════════════════════════════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║                                                                                        ║${NC}"
-    echo -e "${GREEN}║       ${BOLD}Hadoop WSL Installer by github.com/darshan-gowdaa${NC}${GREEN}                        ║${NC}"
+    echo -e "${GREEN}║       ${BOLD}Hadoop WSL Installer by github.com/darshan-gowdaa${NC}${GREEN}      ║${NC}"
     echo -e "${GREEN}║                                                                                        ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -169,7 +169,7 @@ Install with: sudo apt-get install -y ${missing_cmds[*]}"
     real_path=$(readlink -f "$PWD")
     if [[ "$real_path" == /mnt/* ]] || [[ "$real_path" == *"/mnt/"* ]]; then
         echo -e "${RED}╔════════════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${RED}║  ⚠️  WARNING: You're in Windows filesystem!                           ║${NC}"
+        echo -e "${RED}║  [!]  WARNING: You're in Windows filesystem!                          ║${NC}"
         echo -e "${RED}╚════════════════════════════════════════════════════════════════════════╝${NC}"
         echo ""
         echo -e "  Current location: ${YELLOW}$real_path${NC}"
@@ -185,7 +185,7 @@ Install with: sudo apt-get install -y ${missing_cmds[*]}"
     # Verify WSL
     if ! grep -qi microsoft /proc/version 2>/dev/null; then
         echo -e "${YELLOW}╔════════════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${YELLOW}║  ⚠️  WARNING: Not running on WSL                                      ║${NC}"
+        echo -e "${YELLOW}║  [!]  WARNING: Not running on WSL                                     ║${NC}"
         echo -e "${YELLOW}╚════════════════════════════════════════════════════════════════════════╝${NC}"
         echo ""
         echo "This script is optimized for Windows Subsystem for Linux (WSL)."
@@ -203,7 +203,7 @@ Install with: sudo apt-get install -y ${missing_cmds[*]}"
     # Check WSL version
     if ! grep -q "WSL2" /proc/version 2>/dev/null; then
         echo -e "${YELLOW}╔════════════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${YELLOW}║  ⚠️  WARNING: Detected WSL1                                           ║${NC}"
+        echo -e "${YELLOW}║  [!]  WARNING: Detected WSL1                                          ║${NC}"
         echo -e "${YELLOW}╚════════════════════════════════════════════════════════════════════════╝${NC}"
         echo ""
         echo -e "${RED}Hadoop will be EXTREMELY SLOW on WSL1!${NC}"
@@ -220,7 +220,7 @@ Install with: sudo apt-get install -y ${missing_cmds[*]}"
             [[ "$choice" != "y" ]] && exit 0
         fi
     else
-        echo -e "${GREEN}✓ Running on WSL2${NC}"
+        echo -e "${GREEN}[OK] Running on WSL2${NC}"
     fi
     
     echo ""
@@ -232,7 +232,7 @@ Install with: sudo apt-get install -y ${missing_cmds[*]}"
     
     if [ "$total_mem_gb" -lt 6 ]; then
         echo -e "${YELLOW}╔════════════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${YELLOW}║  ⚠️  WARNING: Low Memory                                              ║${NC}"
+        echo -e "${YELLOW}║  [!]  WARNING: Low Memory                                             ║${NC}"
         echo -e "${YELLOW}╚════════════════════════════════════════════════════════════════════════╝${NC}"
         echo ""
         echo -e "WSL has only ${RED}${total_mem_gb}GB RAM${NC} allocated."
@@ -252,7 +252,7 @@ Install with: sudo apt-get install -y ${missing_cmds[*]}"
             [[ "$choice" != "y" ]] && exit 0
         fi
     else
-        echo -e "${GREEN}✓ WSL has ${total_mem_gb}GB RAM allocated${NC}"
+        echo -e "${GREEN}[OK] WSL has ${total_mem_gb}GB RAM allocated${NC}"
     fi
     
     echo ""
@@ -262,7 +262,7 @@ Install with: sudo apt-get install -y ${missing_cmds[*]}"
     if ! sudo -v; then
         error "Sudo authentication failed. Please enter your password."
     fi
-    echo -e "${GREEN}✓ Sudo access confirmed${NC}"
+    echo -e "${GREEN}[OK] Sudo access confirmed${NC}"
     
     echo ""
     
@@ -360,13 +360,13 @@ check_disk_space() {
     
     if [ -d "/mnt/c" ] && [ "$c_avail" -lt "$wsl_avail" ]; then
         actual_available=$c_avail
-        warn "⚠️  Real available space is limited by Windows C: drive: ${c_avail}GB"
+        warn "[!] Real available space is limited by Windows C: drive: ${c_avail}GB"
     fi
     
     if [ "$actual_available" -lt "$required_gb" ]; then
         echo ""
         echo -e "${RED}╔════════════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${RED}║  ❌ ERROR: Insufficient Disk Space                                    ║${NC}"
+        echo -e "${RED}║  [!] ERROR: Insufficient Disk Space                                   ║${NC}"
         echo -e "${RED}╚════════════════════════════════════════════════════════════════════════╝${NC}"
         echo ""
         echo -e "  Required: ${GREEN}${required_gb}GB${NC}"
@@ -380,7 +380,7 @@ check_disk_space() {
         exit 1
     fi
     
-    echo -e "${GREEN}✓ Disk space check passed${NC}"
+    echo -e "${GREEN}[OK] Disk space check passed${NC}"
     echo -e "  Installation requires: ${required_gb}GB"
     echo -e "  You have available: ${GREEN}${actual_available}GB${NC}"
     echo ""
@@ -500,14 +500,14 @@ download_with_retry() {
     local downloaded=false
     
     for mirror in "${MIRRORS[@]}"; do
-        echo -e "${BLUE}⬇${NC}  Trying: $mirror"
+        echo -e "${BLUE}->${NC}  Trying: $mirror"
         
         if wget --progress=bar:force --timeout=60 --tries=2 \
                 -O "$output" "$mirror" 2>&1; then
             
             # Verify file size
             if [ -f "$output" ] && [ $(stat -c%s "$output" 2>/dev/null || echo 0) -gt 1000000 ]; then
-                echo -e "${GREEN}✓${NC} Download successful!"
+                echo -e "${GREEN}[OK]${NC} Download successful!"
                 downloaded=true
                 break
             else
@@ -625,7 +625,7 @@ SSHCONFIG
     fi
     
     mark_done "system_setup"
-    echo -e "${GREEN}✓ System setup completed${NC}"
+    echo -e "${GREEN}[OK] System setup completed${NC}"
 }
 
 # Java configuration
@@ -686,7 +686,7 @@ EOF
     fi
     
     mark_done "java_setup"
-    echo -e "${GREEN}✓ Java configured: $JAVA_HOME${NC}"
+    echo -e "${GREEN}[OK] Java configured: $JAVA_HOME${NC}"
 }
 
 # Hadoop installation
@@ -717,7 +717,7 @@ install_hadoop() {
     ln -s "hadoop-${HADOOP_VERSION}" hadoop
     
     mark_done "hadoop_install"
-    echo -e "${GREEN}✓ Hadoop installed successfully${NC}"
+    echo -e "${GREEN}[OK] Hadoop installed successfully${NC}"
 }
 
 # Hadoop configuration
@@ -871,7 +871,7 @@ EOF
     echo "localhost" > "$HADOOP_CONF_DIR/workers"
     
     mark_done "hadoop_config"
-    echo -e "${GREEN}✓ Hadoop configuration completed${NC}"
+    echo -e "${GREEN}[OK] Hadoop configuration completed${NC}"
 }
 
 # Spark Installation
@@ -894,7 +894,7 @@ install_spark() {
         # Direct hardcoded URL for Spark 3.5.8
     local SPARK_URL="https://downloads.apache.org/spark/spark-3.5.8/spark-3.5.8-bin-hadoop3.tgz"
         
-        echo -e "${BLUE}⬇${NC}  Downloading: spark-3.5.8-bin-hadoop3.tgz"
+        echo -e "${BLUE}->${NC}  Downloading: spark-3.5.8-bin-hadoop3.tgz"
         log "Using hardcoded URL: ${SPARK_URL}"
         
         local output="spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
@@ -933,7 +933,7 @@ install_spark() {
                 error "Downloaded file is corrupted. Please try again."
             fi
             
-            echo -e "${GREEN}✓${NC} Downloaded: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
+            echo -e "${GREEN}[OK]${NC} Downloaded: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
         else
             error "Failed to download Spark. Please check your internet connection."
         fi
@@ -966,7 +966,7 @@ spark.history.fs.logDirectory    hdfs://localhost:9000/spark-logs
 EOF
     
     mark_done "spark_install"
-    echo -e "${GREEN}✓ Spark 3.5.8 installed successfully${NC}"
+    echo -e "${GREEN}[OK] Spark 3.5.8 installed successfully${NC}"
 }
 
 # Kafka Installation
@@ -1074,7 +1074,7 @@ KAFKAWRAPPER
     chmod +x "$INSTALL_DIR/kafka/bin/kafka-server-start-java17.sh"
     
     mark_done "kafka_install"
-    echo -e "${GREEN}✓ Kafka installed successfully${NC}"
+    echo -e "${GREEN}[OK] Kafka installed successfully${NC}"
 }
 
 # Pig Installation
@@ -1102,7 +1102,7 @@ install_pig() {
         local downloaded=false
         
         for mirror in "${mirrors[@]}"; do
-            echo -e "${BLUE}⬇${NC}  Trying: $mirror"
+            echo -e "${BLUE}->${NC}  Trying: $mirror"
             log "Attempting download from: $mirror"
             
             if wget --progress=bar:force --timeout=60 --tries=2 \
@@ -1111,7 +1111,7 @@ install_pig() {
                 
                 # Verify download
                 if [ -f "pig-0.17.0.tar.gz" ] && [ $(stat -c%s "pig-0.17.0.tar.gz" 2>/dev/null || echo 0) -gt 1000000 ]; then
-                    echo -e "${GREEN}✓${NC} Download successful!"
+                    echo -e "${GREEN}[OK]${NC} Download successful!"
                     downloaded=true
                     break
                 else
@@ -1139,7 +1139,7 @@ install_pig() {
     ln -s "pig-0.17.0" pig
     
     mark_done "pig_install"
-    echo -e "${GREEN}✓ Pig 0.17.0 installed successfully${NC}"
+    echo -e "${GREEN}[OK] Pig 0.17.0 installed successfully${NC}"
 }
 
 # Hive Installation
@@ -1169,7 +1169,7 @@ install_hive() {
     ln -s "apache-hive-${HIVE_VERSION}-bin" hive
     
     mark_done "hive_install"
-    echo -e "${GREEN}✓ Hive installed successfully${NC}"
+    echo -e "${GREEN}[OK] Hive installed successfully${NC}"
 }
 
 configure_hive() {
@@ -1273,7 +1273,7 @@ EOF
     chmod +x "$HIVE_HOME/conf/hive-env.sh"
     
     mark_done "hive_config"
-    echo -e "${GREEN}✓ Hive configured successfully${NC}"
+    echo -e "${GREEN}[OK] Hive configured successfully${NC}"
 }
 
 
@@ -1356,7 +1356,7 @@ BASHRC_EOF
 fi
     
     mark_done "env_setup"
-    echo -e "${GREEN}✓ Environment configured${NC}"
+    echo -e "${GREEN}[OK] Environment configured${NC}"
 }
 
 
@@ -1380,7 +1380,7 @@ format_hdfs() {
     spinner $! "Formatting HDFS NameNode"
     
     mark_done "hdfs_format"
-    echo -e "${GREEN}✓ HDFS formatted successfully${NC}"
+    echo -e "${GREEN}[OK] HDFS formatted successfully${NC}"
 }
 
 # Helper Scripts
@@ -1558,7 +1558,7 @@ RESTARTSCRIPT
     chmod +x "$HOME/restart-hadoop.sh"
     
     mark_done "helper_scripts"
-    echo -e "${GREEN}✓ Helper scripts created${NC}"
+    echo -e "${GREEN}[OK] Helper scripts created${NC}"
 }
 
 # Start Services
@@ -1613,7 +1613,7 @@ start_services() {
     for attempt in $(seq 1 $retries); do
         if "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /spark-logs 2>/dev/null; then
             "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs 2>/dev/null || true
-            echo -e "${GREEN}✓${NC} Spark directory created"
+            echo -e "${GREEN}[OK]${NC} Spark directory created"
             break
         else
             if [ $attempt -lt $retries ]; then
@@ -1632,7 +1632,7 @@ start_services() {
             "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /tmp/hive 2>/dev/null || true
             "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /user/hive/warehouse 2>/dev/null || true
             "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /tmp/hive 2>/dev/null || true
-            echo -e "${GREEN}✓${NC} Hive directories created"
+            echo -e "${GREEN}[OK]${NC} Hive directories created"
             break
         else
             if [ $attempt -lt 3 ]; then
@@ -1661,7 +1661,7 @@ start_services() {
     for attempt in $(seq 1 3); do
         if "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/$USER 2>/dev/null; then
             "$HADOOP_HOME/bin/hdfs" dfs -chmod 755 /user/$USER 2>/dev/null || true
-            echo -e "${GREEN}✓${NC} User directory /user/$USER created"
+            echo -e "${GREEN}[OK]${NC} User directory /user/$USER created"
             break
         else
             if [ $attempt -lt 3 ]; then
@@ -1807,12 +1807,12 @@ main() {
     print_guide
     
     echo ""
-    echo -e "${BOLD}${GREEN}   ✨ Installation Successfully Completed! ✨${NC}"
+    echo -e "${BOLD}${GREEN}   *** Installation Successfully Completed! ***${NC}"
     echo ""
-    echo -e "   ${CYAN}🚀 Crafted by  :${NC} ${BOLD}Darshan Gowda${NC}"
-    echo -e "   ${CYAN}🔗 GitHub      :${NC} ${BLUE}https://github.com/darshangowdaa${NC}"
+    echo -e "   ${CYAN}[Dev] Crafted by  :${NC} ${BOLD}Darshan Gowda${NC}"
+    echo -e "   ${CYAN}[Link] GitHub     :${NC} ${BLUE}https://github.com/darshangowdaa${NC}"
     echo ""
-    echo -e "   ${YELLOW}👉 Action Needed:${NC} Type ${BOLD}source ~/.bashrc${NC} to start."
+    echo -e "   ${YELLOW}-> Action Needed:${NC} Type ${BOLD}source ~/.bashrc${NC} to start."
 }
 
 main
