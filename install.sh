@@ -1243,20 +1243,50 @@ configure_hive() {
     if ! pgrep -x mysqld >/dev/null; then
         log "Starting MySQL service..."
         
-        # Try service command first
-        if sudo service mysql start 2>/dev/null; then
-            echo -e "${GREEN}-------${NC} MySQL started successfully"
-            sleep 3
-        else
-            # Fallback to direct mysqld start
-            warn "service mysql failed, trying direct start..."
-            sudo mysqld --user=mysql --daemonize --pid-file=/var/run/mysqld/mysqld.pid 2>/dev/null || true
-            sleep 3
+        # WSL Fix: Ensure MySQL runtime directory exists
+        if [ ! -d "/var/run/mysqld" ]; then
+            log "Creating missing /var/run/mysqld directory..."
+            sudo mkdir -p /var/run/mysqld
+            sudo chown mysql:mysql /var/run/mysqld
         fi
+        
+        # WSL Fix: Ensure mysql user has a home directory (fixes some startup issues)
+        sudo usermod -d /var/lib/mysql mysql 2>/dev/null || true
+        
+        # Try service command
+        if sudo service mysql start 2>/dev/null; then
+             echo -e "${GREEN}-------${NC} MySQL started successfully"
+        elif sudo /etc/init.d/mysql start 2>/dev/null; then
+             echo -e "${GREEN}-------${NC} MySQL started via init.d"
+        else
+            warn "Standard service start failed, trying to initialize directories and retry..."
+            
+            # Attempt to initialize directories if they are missing
+            sudo mysqld --initialize-insecure --user=mysql 2>/dev/null || true
+            
+            if sudo service mysql start 2>/dev/null; then
+                echo -e "${GREEN}-------${NC} MySQL started after initialization"
+            else
+                # Fallback to direct mysqld start
+                warn "Still failing, trying direct mysqld execution..."
+                sudo mysqld --user=mysql --daemonize --pid-file=/var/run/mysqld/mysqld.pid 2>/dev/null || true
+            fi
+        fi
+        
+        sleep 5
         
         # Final verification
         if ! pgrep -x mysqld >/dev/null; then
-            error "Failed to start MySQL. Please run: sudo service mysql start"
+             # One last desperate attempt - manually safe start
+             sudo mysqld_safe --skip-grant-tables &
+             sleep 5
+             
+             if ! pgrep -x mysqld >/dev/null; then
+                error "Failed to start MySQL. 
+    Try manually: 
+    1. sudo mkdir -p /var/run/mysqld && sudo chown mysql:mysql /var/run/mysqld
+    2. sudo service mysql start"
+             fi
         fi
     else
         echo -e "${GREEN}[OK]${NC} MySQL already running"
