@@ -613,15 +613,27 @@ SSHCONFIG
     # Start MySQL service
     if ! pgrep -x mysqld >/dev/null; then
         log "Starting MySQL service..."
-        (sudo service mysql start) &
-        spinner $! "Starting MySQL"
+        if sudo service mysql start 2>/dev/null; then
+            echo -e "${GREEN}✓${NC} MySQL started"
+            sleep 2
+        else
+            warn "MySQL service start failed - will retry during Hive setup"
+        fi
+    else
+        echo -e "${GREEN}[OK]${NC} MySQL already running"
     fi
 
     # Start SSH service
     if ! pgrep -x sshd >/dev/null; then
         log "Starting SSH service..."
-        (sudo service ssh start) &
-        spinner $! "Starting SSH"
+        if sudo service ssh start 2>/dev/null; then
+            echo -e "${GREEN}✓${NC} SSH started"
+            sleep 1
+        else
+            warn "SSH service start failed - may affect Hadoop startup later"
+        fi
+    else
+        echo -e "${GREEN}[OK]${NC} SSH already running"
     fi
     
     mark_done "system_setup"
@@ -1227,18 +1239,56 @@ configure_hive() {
     
     log "Configuring MySQL for Hive metastore..."
     
+    # Ensure MySQL is running
     if ! pgrep -x mysqld >/dev/null; then
-        (sudo service mysql start) &
-        spinner $! "Starting MySQL"
+        log "Starting MySQL service..."
+        
+        # Try service command first
+        if sudo service mysql start 2>/dev/null; then
+            echo -e "${GREEN}✓${NC} MySQL started successfully"
+            sleep 3
+        else
+            # Fallback to direct mysqld start
+            warn "service mysql failed, trying direct start..."
+            sudo mysqld --user=mysql --daemonize --pid-file=/var/run/mysqld/mysqld.pid 2>/dev/null || true
+            sleep 3
+        fi
+        
+        # Final verification
+        if ! pgrep -x mysqld >/dev/null; then
+            error "Failed to start MySQL. Please run: sudo service mysql start"
+        fi
+    else
+        echo -e "${GREEN}[OK]${NC} MySQL already running"
+    fi
+    
+    # Wait for MySQL to be fully ready
+    log "Waiting for MySQL to be ready..."
+    local mysql_ready=false
+    for i in {1..30}; do
+        if sudo mysql -u root -e "SELECT 1" >/dev/null 2>&1; then
+            mysql_ready=true
+            echo -e "${GREEN}✓${NC} MySQL is ready"
+            break
+        fi
+        sleep 1
+    done
+    
+    if [ "$mysql_ready" = false ]; then
+        error "MySQL didn't become ready in time"
     fi
     
     log "Creating Hive metastore database..."
-    sudo mysql -u root <<MYSQL_SCRIPT 2>/dev/null || true
+    sudo mysql -u root <<MYSQL_SCRIPT 2>/dev/null || {
+        error "Failed to create Hive database. Check MySQL connection."
+    }
 CREATE DATABASE IF NOT EXISTS metastore;
 CREATE USER IF NOT EXISTS 'hiveuser'@'localhost' IDENTIFIED BY 'hivepassword';
 GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'localhost';
 FLUSH PRIVILEGES;
 MYSQL_SCRIPT
+    
+    echo -e "${GREEN}✓${NC} Metastore database created"
     
     log "Downloading MySQL JDBC connector..."
     cd "$HIVE_HOME/lib"
