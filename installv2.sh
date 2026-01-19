@@ -3,7 +3,7 @@
 # WSL Hadoop Ecosystem - Interactive Menu Installer
 # by github.com/darshan-gowdaa
 
-set -Eeo pipefail
+set -Ee
 
 # Configuration
 INSTALL_DIR="$HOME/bigdata"
@@ -27,12 +27,22 @@ BOLD='\033[1m'
 # ==================== UTILITY FUNCTIONS ====================
 
 log() { echo "[$(date +'%H:%M:%S')] $1" | tee -a "$LOG_FILE"; }
-error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 success() { echo -e "${GREEN}[OK]${NC} $1"; }
 info() { echo -e "${CYAN}[INFO]${NC} $1"; }
+warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 
 mark_done() { echo "$1" >> "$STATE_FILE"; }
 is_done() { [ -f "$STATE_FILE" ] && grep -Fxq "$1" "$STATE_FILE" 2>/dev/null; }
+
+safe_execute() {
+    if "$@" 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+        return 0
+    else
+        warn "Non-critical error in: $*"
+        return 0
+    fi
+}
 
 spinner() {
     local pid=$1
@@ -55,7 +65,13 @@ spinner() {
 execute_with_spinner() {
     local msg=$1
     shift
-    ("$@" &>/dev/null) & spinner $! "$msg"
+    (
+        set +e
+        "$@" &>/dev/null
+        exit $?
+    ) & 
+    spinner $! "$msg"
+    return $?
 }
 
 download_file() {
@@ -67,16 +83,30 @@ download_file() {
         "https://archive.apache.org/dist/$(echo $url | sed 's|https://[^/]*/||')"
     )
     
+    info "Downloading $(basename $output)..."
+    
     for mirror in "${mirrors[@]}"; do
-        if wget -q --show-progress --timeout=60 -O "$output" "$mirror" 2>&1; then
-            [ -f "$output" ] && [ $(stat -c%s "$output") -gt 1000000 ] && return 0
+        log "Trying mirror: $mirror"
+        if wget -q --show-progress --timeout=60 --tries=2 -O "$output" "$mirror" 2>&1 | grep -v "^$"; then
+            if [ -f "$output" ] && [ $(stat -c%s "$output" 2>/dev/null || echo 0) -gt 1000000 ]; then
+                success "Download complete"
+                return 0
+            fi
             rm -f "$output"
         fi
+        rm -f "$output"
+        warn "Mirror failed, trying next..."
     done
+    
+    error "All download mirrors failed for $(basename $output)"
     return 1
 }
 
 # ==================== PRE-FLIGHT CHECKS ====================
+
+check_command() {
+    command -v "$1" &>/dev/null || error "$1 not found. Install with: sudo apt-get install -y $2"
+}
 
 preflight_checks() {
     clear
@@ -84,9 +114,20 @@ preflight_checks() {
     echo -e "${GREEN}   Hadoop WSL Installer - github.com/darshan-gowdaa  ${NC}"
     echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}\n"
     
+    # Check required commands
+    info "Checking system requirements..."
+    check_command "wget" "wget"
+    check_command "tar" "tar"
+    check_command "ssh" "openssh-server"
+    check_command "awk" "gawk"
+    check_command "nc" "netcat-openbsd"
+    
     # Check WSL
     if ! grep -qi microsoft /proc/version 2>/dev/null; then
-        error "Not running on WSL. This installer is WSL-optimized."
+        warn "Not running on WSL. Some features may not work optimally."
+        read -p "Continue anyway? (y/n): " -n 1 -r
+        echo
+        [[ ! $REPLY =~ ^[Yy]$ ]] && exit 0
     fi
     
     # Check WSL2
@@ -98,18 +139,28 @@ preflight_checks() {
     fi
     
     # Check location
-    [[ $(readlink -f "$PWD") == /mnt/* ]] && error "Run from Linux filesystem, not /mnt/"
+    local current_path=$(readlink -f "$PWD")
+    if [[ "$current_path" == /mnt/* ]]; then
+        error "Cannot run from Windows filesystem (/mnt/). Run from Linux home: cd ~ && ./install.sh"
+    fi
     
     # Check memory
-    local mem_gb=$(free -m | awk '/^Mem:/{print int($2/1024)}')
-    [ $mem_gb -lt 6 ] && echo -e "${YELLOW}WARNING: Only ${mem_gb}GB RAM. Recommend 8GB+${NC}"
+    local mem_gb=$(free -m 2>/dev/null | awk '/^Mem:/{print int($2/1024)}')
+    if [ -z "$mem_gb" ] || [ "$mem_gb" -lt 4 ]; then
+        warn "Low memory detected (${mem_gb}GB). Minimum 6GB recommended."
+    fi
     
     # Check disk space
-    local avail_gb=$(df -BG "$HOME" | awk 'NR==2 {print $4}' | sed 's/G//')
-    [ $avail_gb -lt 12 ] && error "Need 12GB+ free space. Available: ${avail_gb}GB"
+    local avail_gb=$(df -BG "$HOME" 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/G//' || echo "0")
+    if [ "$avail_gb" -lt 12 ]; then
+        error "Insufficient disk space. Need 12GB+, available: ${avail_gb}GB"
+    fi
     
     # Check sudo
-    sudo -v || error "Sudo access required"
+    if ! sudo -n true 2>/dev/null; then
+        info "Sudo access required. Please enter password:"
+        sudo -v || error "Sudo authentication failed"
+    fi
     
     success "Pre-flight checks passed"
     sleep 1
@@ -125,26 +176,42 @@ install_system_deps() {
     
     echo -e "\n${BOLD}[1/8] Installing System Dependencies${NC}"
     
-    execute_with_spinner "Updating package lists" sudo apt-get update -qq
+    if ! execute_with_spinner "Updating package lists" sudo apt-get update -qq; then
+        warn "Package update had warnings, continuing..."
+    fi
     
-    local pkgs=(openjdk-11-jdk openjdk-17-jdk wget ssh netcat-openbsd vim mysql-server)
-    execute_with_spinner "Installing packages" sudo apt-get install -y "${pkgs[@]}" -qq
+    local pkgs=(openjdk-11-jdk openjdk-17-jdk wget ssh netcat-openbsd vim mysql-server rsync)
+    if ! execute_with_spinner "Installing packages" sudo apt-get install -y "${pkgs[@]}" -qq; then
+        error "Package installation failed. Check your internet connection and try again."
+    fi
     
-    execute_with_spinner "Configuring Java 11 as default" \
-        sudo update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
+    # Verify Java installation
+    if [ ! -d "/usr/lib/jvm/java-11-openjdk-amd64" ]; then
+        error "Java 11 installation failed. Run: sudo apt-get install -y openjdk-11-jdk"
+    fi
     
-    # SSH setup
+    if [ ! -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
+        error "Java 17 installation failed. Run: sudo apt-get install -y openjdk-17-jdk"
+    fi
+    
+    safe_execute sudo update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
+    
+    # SSH setup with error checking
     if [ ! -f "$HOME/.ssh/id_rsa" ]; then
-        execute_with_spinner "Generating SSH keys" \
-            ssh-keygen -t rsa -P '' -f "$HOME/.ssh/id_rsa" -q
+        mkdir -p "$HOME/.ssh"
+        if ! ssh-keygen -t rsa -P '' -f "$HOME/.ssh/id_rsa" -q &>/dev/null; then
+            error "SSH key generation failed"
+        fi
         cat "$HOME/.ssh/id_rsa.pub" >> "$HOME/.ssh/authorized_keys"
     fi
     
-    chmod 700 ~/.ssh
-    chmod 600 ~/.ssh/id_rsa ~/.ssh/authorized_keys
-    chmod 644 ~/.ssh/id_rsa.pub
+    chmod 700 ~/.ssh 2>/dev/null || true
+    chmod 600 ~/.ssh/id_rsa 2>/dev/null || true
+    chmod 600 ~/.ssh/authorized_keys 2>/dev/null || true
+    chmod 644 ~/.ssh/id_rsa.pub 2>/dev/null || true
     
     # SSH config
+    mkdir -p ~/.ssh
     cat > ~/.ssh/config <<'EOF'
 Host localhost 127.0.0.1 0.0.0.0
     StrictHostKeyChecking no
@@ -153,9 +220,20 @@ Host localhost 127.0.0.1 0.0.0.0
 EOF
     chmod 600 ~/.ssh/config
     
-    # Start services
-    sudo service ssh start &>/dev/null || true
-    sudo service mysql start &>/dev/null || true
+    # Start services with checks
+    if ! pgrep -x sshd >/dev/null; then
+        sudo service ssh start &>/dev/null || warn "SSH service failed to start"
+    fi
+    
+    if ! pgrep -x mysqld >/dev/null; then
+        # Ensure MySQL directories exist
+        sudo mkdir -p /var/run/mysqld 2>/dev/null || true
+        sudo chown mysql:mysql /var/run/mysqld 2>/dev/null || true
+        
+        if ! sudo service mysql start &>/dev/null; then
+            warn "MySQL service failed to start - will retry during Hive installation"
+        fi
+    fi
     
     # IPv6 fix
     if ! grep -q "disable_ipv6" /etc/sysctl.conf 2>/dev/null; then
@@ -302,14 +380,24 @@ install_kafka() {
     
     echo -e "\n${BOLD}[4/8] Installing Kafka ${KAFKA_VERSION}${NC}"
     
-    cd "$INSTALL_DIR"
+    # Verify Java 17 exists
+    if [ ! -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
+        error "Java 17 not found. Install with: sudo apt-get install -y openjdk-17-jdk"
+    fi
+    
+    cd "$INSTALL_DIR" || error "Cannot access $INSTALL_DIR"
     
     if [ ! -d "kafka_2.13-${KAFKA_VERSION}" ]; then
-        download_file \
+        if ! download_file \
             "https://dlcdn.apache.org/kafka/${KAFKA_VERSION}/kafka_2.13-${KAFKA_VERSION}.tgz" \
-            "kafka.tgz" || error "Kafka download failed"
+            "kafka.tgz"; then
+            error "Kafka download failed after all retries"
+        fi
         
-        execute_with_spinner "Extracting Kafka" tar -xzf kafka.tgz
+        if ! execute_with_spinner "Extracting Kafka" tar -xzf kafka.tgz; then
+            rm -f kafka.tgz
+            error "Kafka extraction failed"
+        fi
         rm kafka.tgz
     fi
     
@@ -321,7 +409,10 @@ install_kafka() {
     if [ -f "$INSTALL_DIR/kafka/.cluster-id" ]; then
         cid=$(cat "$INSTALL_DIR/kafka/.cluster-id")
     else
-        cid=$(JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 "$INSTALL_DIR/kafka/bin/kafka-storage.sh" random-uuid)
+        cid=$(JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 "$INSTALL_DIR/kafka/bin/kafka-storage.sh" random-uuid 2>/dev/null)
+        if [ -z "$cid" ]; then
+            error "Failed to generate Kafka cluster ID"
+        fi
         echo "$cid" > "$INSTALL_DIR/kafka/.cluster-id"
     fi
     
@@ -333,13 +424,18 @@ controller.quorum.voters=1@localhost:9093
 listeners=PLAINTEXT://localhost:9092,CONTROLLER://localhost:9093
 controller.listener.names=CONTROLLER
 log.dirs=$INSTALL_DIR/kafka/kraft-logs
+num.partitions=1
+offsets.topic.replication.factor=1
+transaction.state.log.replication.factor=1
 EOF
     
     # Format storage
     if [ ! -f "$INSTALL_DIR/kafka/kraft-logs/meta.properties" ]; then
-        JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+        if ! JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
             "$INSTALL_DIR/kafka/bin/kafka-storage.sh" format -t "$cid" \
-            -c "$INSTALL_DIR/kafka/config/kraft-server.properties" &>/dev/null
+            -c "$INSTALL_DIR/kafka/config/kraft-server.properties" &>/dev/null; then
+            warn "Kafka storage format had warnings"
+        fi
     fi
     
     mark_done "kafka_full"
@@ -530,41 +626,130 @@ show_menu() {
 }
 
 check_status() {
-    echo -e "\n${BOLD}Service Status:${NC}"
+    echo -e "\n${BOLD}Service Status:${NC}\n"
     
     local services=("NameNode:9870" "DataNode:9864" "ResourceManager:8088" "NodeManager:8042" "Kafka:9092" "HiveMetaStore:9083")
     for svc in "${services[@]}"; do
         IFS=':' read -r name port <<< "$svc"
         if nc -z localhost "$port" 2>/dev/null; then
-            echo -e "  ${GREEN}✓${NC} $name"
+            echo -e "  ${GREEN}✓${NC} $name (port $port)"
         else
-            echo -e "  ${RED}✗${NC} $name"
+            echo -e "  ${RED}✗${NC} $name (port $port)"
         fi
     done
-    echo ""
     
-    jps 2>/dev/null | grep -v "Jps" || echo "No Java processes running"
+    echo -e "\n${BOLD}Java Processes:${NC}"
+    if command -v jps &>/dev/null; then
+        jps 2>/dev/null | grep -v "Jps" || echo "  No Java processes"
+    else
+        echo "  jps command not found"
+    fi
+    
+    echo -e "\n${BOLD}HDFS Status:${NC}"
+    if [ -d "$INSTALL_DIR/hadoop" ]; then
+        export HADOOP_HOME="$INSTALL_DIR/hadoop"
+        if "$HADOOP_HOME/bin/hdfs" dfsadmin -report &>/dev/null; then
+            "$HADOOP_HOME/bin/hdfs" dfsadmin -report 2>/dev/null | head -15
+        else
+            echo "  HDFS not running or not configured"
+        fi
+    else
+        echo "  Hadoop not installed"
+    fi
 }
 
 start_services() {
     echo -e "\n${BOLD}Starting Services...${NC}\n"
     
-    export HADOOP_HOME="$INSTALL_DIR/hadoop"
+    export HADOOP_HOME="${HADOOP_HOME:-$INSTALL_DIR/hadoop}"
     
-    execute_with_spinner "Starting HDFS" "$HADOOP_HOME/sbin/start-dfs.sh"
-    sleep 3
-    execute_with_spinner "Starting YARN" "$HADOOP_HOME/sbin/start-yarn.sh"
-    sleep 3
+    # Verify Hadoop is installed
+    if [ ! -d "$HADOOP_HOME" ]; then
+        error "Hadoop not installed. Install it first from menu."
+    fi
     
-    "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/$USER /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null
-    "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null
+    # Ensure SSH is running
+    if ! pgrep -x sshd >/dev/null; then
+        sudo service ssh start &>/dev/null || warn "SSH service not started"
+    fi
     
-    nohup "$INSTALL_DIR/hive/bin/hive" --service metastore &>/dev/null &
-    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
-        nohup "$INSTALL_DIR/kafka/bin/kafka-server-start.sh" \
-        "$INSTALL_DIR/kafka/config/kraft-server.properties" &>/dev/null &
+    # Test SSH connectivity
+    if ! ssh -o BatchMode=yes -o ConnectTimeout=5 localhost exit &>/dev/null; then
+        error "SSH connection to localhost failed. Check SSH setup."
+    fi
     
-    success "All services started"
+    # Start HDFS
+    if ! execute_with_spinner "Starting HDFS" "$HADOOP_HOME/sbin/start-dfs.sh"; then
+        error "HDFS failed to start. Check logs: $HADOOP_HOME/logs/"
+    fi
+    sleep 5
+    
+    # Verify NameNode started
+    if ! pgrep -f "NameNode" >/dev/null; then
+        error "NameNode failed to start. Check: $HADOOP_HOME/logs/hadoop-$USER-namenode-*.log"
+    fi
+    
+    # Start YARN
+    if ! execute_with_spinner "Starting YARN" "$HADOOP_HOME/sbin/start-yarn.sh"; then
+        warn "YARN had startup warnings, continuing..."
+    fi
+    sleep 5
+    
+    # Wait for HDFS safe mode
+    info "Waiting for HDFS to exit safe mode..."
+    local attempts=0
+    local max_attempts=60
+    while [ $attempts -lt $max_attempts ]; do
+        if "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode get 2>/dev/null | grep -q "OFF"; then
+            success "HDFS ready"
+            break
+        fi
+        attempts=$((attempts + 1))
+        sleep 1
+    done
+    
+    if [ $attempts -eq $max_attempts ]; then
+        warn "HDFS safe mode timeout - forcing exit"
+        "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode leave &>/dev/null || true
+    fi
+    
+    # Create HDFS directories
+    info "Creating HDFS directories..."
+    "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/$USER 2>/dev/null || true
+    "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /spark-logs 2>/dev/null || true
+    "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/hive/warehouse 2>/dev/null || true
+    "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /tmp/hive 2>/dev/null || true
+    "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null || true
+    
+    # Start Hive Metastore if installed
+    if [ -d "$INSTALL_DIR/hive" ] && is_done "hive_full"; then
+        if ! pgrep -f "HiveMetaStore" >/dev/null; then
+            info "Starting Hive Metastore..."
+            
+            # Ensure MySQL is running
+            if ! pgrep -x mysqld >/dev/null; then
+                sudo service mysql start &>/dev/null || warn "MySQL not started"
+            fi
+            
+            nohup "$INSTALL_DIR/hive/bin/hive" --service metastore \
+                > "$INSTALL_DIR/hive/metastore.log" 2>&1 &
+            sleep 2
+        fi
+    fi
+    
+    # Start Kafka if installed
+    if [ -d "$INSTALL_DIR/kafka" ] && is_done "kafka_full"; then
+        if ! pgrep -f "kafka.Kafka" >/dev/null; then
+            info "Starting Kafka..."
+            JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+                nohup "$INSTALL_DIR/kafka/bin/kafka-server-start.sh" \
+                "$INSTALL_DIR/kafka/config/kraft-server.properties" \
+                > "$INSTALL_DIR/kafka/kafka.log" 2>&1 &
+            sleep 3
+        fi
+    fi
+    
+    success "Services started successfully"
     echo -e "  HDFS: ${CYAN}http://localhost:9870${NC}"
     echo -e "  YARN: ${CYAN}http://localhost:8088${NC}"
 }
@@ -572,20 +757,59 @@ start_services() {
 stop_services() {
     echo -e "\n${BOLD}Stopping Services...${NC}\n"
     
-    export HADOOP_HOME="$INSTALL_DIR/hadoop"
+    export HADOOP_HOME="${HADOOP_HOME:-$INSTALL_DIR/hadoop}"
     
-    execute_with_spinner "Stopping YARN" "$HADOOP_HOME/sbin/stop-yarn.sh"
-    execute_with_spinner "Stopping HDFS" "$HADOOP_HOME/sbin/stop-dfs.sh"
+    # Check if Hadoop is installed
+    if [ ! -d "$HADOOP_HOME" ]; then
+        warn "Hadoop not installed, nothing to stop"
+        return
+    fi
     
-    pkill -f HiveMetaStore &>/dev/null || true
-    pkill -f kafka.Kafka &>/dev/null || true
+    # Stop YARN
+    if [ -x "$HADOOP_HOME/sbin/stop-yarn.sh" ]; then
+        execute_with_spinner "Stopping YARN" "$HADOOP_HOME/sbin/stop-yarn.sh"
+    fi
+    
+    # Stop HDFS
+    if [ -x "$HADOOP_HOME/sbin/stop-dfs.sh" ]; then
+        execute_with_spinner "Stopping HDFS" "$HADOOP_HOME/sbin/stop-dfs.sh"
+    fi
+    
+    # Stop Hive
+    if pgrep -f "HiveMetaStore" >/dev/null; then
+        info "Stopping Hive Metastore..."
+        pkill -f HiveMetaStore &>/dev/null || true
+        sleep 1
+    fi
+    
+    # Stop Kafka
+    if pgrep -f "kafka.Kafka" >/dev/null; then
+        info "Stopping Kafka..."
+        pkill -f kafka.Kafka &>/dev/null || true
+        sleep 1
+    fi
     
     success "All services stopped"
 }
 
 # ==================== MAIN ====================
 
+cleanup_on_error() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo -e "\n${RED}Installation interrupted. Check log: $LOG_FILE${NC}"
+    fi
+}
+
+trap cleanup_on_error EXIT
+
 main() {
+    # Initialize log file
+    touch "$LOG_FILE" 2>/dev/null || {
+        LOG_FILE="/tmp/hadoop_install.log"
+        warn "Using fallback log location: $LOG_FILE"
+    }
+    
     preflight_checks
     
     while true; do
@@ -662,8 +886,8 @@ main() {
                 exit 0
                 ;;
             *)
-                echo -e "${RED}Invalid option${NC}"
-                sleep 1
+                echo -e "${RED}Invalid option. Please select 0-9.${NC}"
+                sleep 2
                 ;;
         esac
     done
