@@ -1243,6 +1243,13 @@ configure_hive() {
     if ! pgrep -x mysqld >/dev/null; then
         log "Starting MySQL service..."
         
+        # WSL Fix: Ensure mysql-server is actually installed
+        if ! dpkg -l | grep -q "mysql-server" || ! command -v mysqld >/dev/null; then
+             warn "MySQL server appears to be missing. Installing..."
+             sudo apt-get update -qq
+             sudo apt-get install -y mysql-server -qq
+        fi
+        
         # WSL Fix: Ensure MySQL runtime directory exists
         if [ ! -d "/var/run/mysqld" ]; then
             log "Creating missing /var/run/mysqld directory..."
