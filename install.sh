@@ -1088,50 +1088,73 @@ install_hive() {
     if [ ! -d "apache-hive-${HIVE_VERSION}-bin" ]; then
         rm -f "apache-hive-${HIVE_VERSION}-bin.tar.gz"
         
-        # Direct hardcoded URL for Hive
-        local HIVE_URL="wget https://repo.huaweicloud.com/apache/hive/hive-3.1.3/apache-hive-3.1.3-bin.tar.gz"
-        echo -e "${BLUE}->${NC}  Downloading: apache-hive-${HIVE_VERSION}-bin.tar.gz"
-        log "Using hardcoded URL: ${HIVE_URL}"
-        
         local output="apache-hive-${HIVE_VERSION}-bin.tar.gz"
         
-        # Download with progress
-        echo -e "${CYAN}Downloading from Apache servers... (This process is slow and might look stuck, be patient)${NC}"
+        # Try multiple mirrors with 10s timeout each
+        local HIVE_URLS=(
+            "https://apache.root.lu/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz"
+            "https://dlcdn.apache.org/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz"
+            "https://downloads.apache.org/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz"
+            "https://archive.apache.org/dist/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz"
+            "http://mirrors.sonic.net/apache/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz"
+            "http://mirrors.ibiblio.org/apache/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz"
+        )
         
-        if wget --progress=dot:giga --timeout=120 --tries=2 \
-                --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
-                -O "$output" "$HIVE_URL" 2>&1 | \
-                grep --line-buffered "%" | \
-                sed -u 's/\.//g' | \
-                while IFS= read -r line; do
-                    if [[ $line =~ ([0-9]+)% ]]; then
-                        local percent="${BASH_REMATCH[1]}"
-                        local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
-                        local empty=$((PROGRESS_BAR_WIDTH - filled))
-                        
-                        printf "\r${CYAN}[${NC}"
-                        printf "%${filled}s" | tr ' ' '='
-                        printf "%${empty}s" | tr ' ' '-'
-                        printf "${CYAN}]${NC} ${percent}%%"
-                    fi
-                done; then
+        echo -e "${BLUE}->${NC}  Downloading: apache-hive-${HIVE_VERSION}-bin.tar.gz"
+        
+        local download_success=false
+        
+        for HIVE_URL in "${HIVE_URLS[@]}"; do
+            echo -e "${YELLOW}Trying mirror: ${HIVE_URL}${NC}"
+            log "Attempting: ${HIVE_URL}"
             
-            printf "\n"
-            
-            local file_size
-            file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
-            
-            if [ "$file_size" -lt 1000000 ]; then
-                error "Downloaded file too small. Check your internet connection."
+            if timeout 10 wget --progress=dot:giga --timeout=10 --tries=1 \
+                    --dns-timeout=5 --connect-timeout=5 --read-timeout=10 \
+                    -O "$output" "$HIVE_URL" 2>&1 | \
+                    grep --line-buffered "%" | \
+                    sed -u 's/\.//g' | \
+                    while IFS= read -r line; do
+                        if [[ $line =~ ([0-9]+)% ]]; then
+                            local percent="${BASH_REMATCH[1]}"
+                            local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
+                            local empty=$((PROGRESS_BAR_WIDTH - filled))
+                            
+                            printf "\r${CYAN}[${NC}"
+                            printf "%${filled}s" | tr ' ' '='
+                            printf "%${empty}s" | tr ' ' '-'
+                            printf "${CYAN}]${NC} ${percent}%%"
+                        fi
+                    done; then
+                
+                printf "\n"
+                
+                local file_size
+                file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
+                
+                if [ "$file_size" -lt 1000000 ]; then
+                    echo -e "${YELLOW}File too small (${file_size} bytes), trying next...${NC}"
+                    rm -f "$output"
+                    continue
+                fi
+                
+                if ! tar -tzf "$output" >/dev/null 2>&1; then
+                    echo -e "${YELLOW}File corrupted, trying next mirror...${NC}"
+                    rm -f "$output"
+                    continue
+                fi
+                
+                echo -e "${GREEN}[OK]${NC} Downloaded: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
+                download_success=true
+                break
+            else
+                echo -e "${YELLOW}Timeout or failed, trying next...${NC}"
+                rm -f "$output"
+                continue
             fi
-            
-            if ! tar -tzf "$output" >/dev/null 2>&1; then
-                error "Downloaded file is corrupted. Please try again."
-            fi
-            
-            echo -e "${GREEN}[OK]${NC} Downloaded: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
-        else
-            error "Failed to download Hive. Please check your internet connection."
+        done
+        
+        if [ "$download_success" = false ]; then
+            error "Failed to download Hive from all mirrors. Please check your internet connection."
         fi
         
         log "Extracting Hive..."
@@ -1145,6 +1168,7 @@ install_hive() {
     mark_done "hive_install"
     echo -e "${GREEN}[OK] Hive installed successfully${NC}"
 }
+
 
 configure_hive() {
     if is_done "hive_config"; then
