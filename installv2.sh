@@ -606,16 +606,16 @@ STOP
 show_menu() {
     clear
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║     Hadoop Ecosystem Installer - Interactive Menu    ║${NC}"
+    echo -e "${GREEN}║ Hadoop Installation for WSL github.com/darshangowdaa  ║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}\n"
     
     echo -e "${CYAN}Installation Options:${NC}"
-    echo -e "  ${BOLD}1)${NC} Full Installation (All Components)"
+    echo -e "  ${BOLD}1)${NC} Full Installation (All Components) [Beta Version, may not work]"
     echo -e "  ${BOLD}2)${NC} Hadoop Only"
     echo -e "  ${BOLD}3)${NC} Spark Only"
     echo -e "  ${BOLD}4)${NC} Kafka Only"
     echo -e "  ${BOLD}5)${NC} Pig Only"
-    echo -e "  ${BOLD}6)${NC} Hive Only"
+    echo -e "  ${BOLD}6)${NC} Hive Only [Beta Verison, may not work]"
     echo ""
     echo -e "${CYAN}Management:${NC}"
     echo -e "  ${BOLD}7)${NC} Start All Services"
@@ -836,6 +836,7 @@ main() {
                 setup_environment
                 create_scripts
                 success "Hadoop installed"
+                echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
                 read -p "Press Enter to continue..."
                 ;;
             3)
@@ -844,6 +845,7 @@ main() {
                 install_spark
                 setup_environment
                 success "Spark installed"
+                echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
                 read -p "Press Enter to continue..."
                 ;;
             4)
@@ -851,6 +853,7 @@ main() {
                 install_kafka
                 setup_environment
                 success "Kafka installed"
+                echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
                 read -p "Press Enter to continue..."
                 ;;
             5)
@@ -859,6 +862,7 @@ main() {
                 install_pig
                 setup_environment
                 success "Pig installed"
+                echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
                 read -p "Press Enter to continue..."
                 ;;
             6)
@@ -867,6 +871,7 @@ main() {
                 install_hive
                 setup_environment
                 success "Hive installed"
+                echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
                 read -p "Press Enter to continue..."
                 ;;
             7)
