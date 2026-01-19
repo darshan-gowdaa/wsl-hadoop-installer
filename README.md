@@ -1,18 +1,19 @@
 # Hadoop WSL Installer
 
-Simple one-script setup to run **Hadoop ecosystem on WSL2**.
-Made for students so you don’t waste hours fixing Java, SSH, or HDFS issues.
+Simple one-command setup to run the **Hadoop ecosystem on WSL2**.
+Made for students so you don’t waste time fixing Java, SSH, or HDFS issues.
 
 ---
 
-## What You Get
+## What You Get / Installed Versions
 
-- Hadoop 3.3.6 (HDFS + MapReduce)
-- YARN 3.3.6
-- Spark 3.5.3
-- Kafka 3.6.1 (KRaft mode - no ZooKeeper)
-- Pig 0.17.0
-- Java 11 (auto-installed)
+* Hadoop 3.4.2 (HDFS + MapReduce)
+* YARN 3.4.2
+* Spark 3.5.8
+* Kafka 4.1.1 (KRaft mode, no ZooKeeper)
+* Pig 0.17.0
+* Hive 3.1.3
+* Java 11 and Java 17
 
 Everything installs inside:
 
@@ -22,87 +23,54 @@ Everything installs inside:
 
 ---
 
-## Requirements (Minimum)
+## Requirements
 
-* WSL2 with **Ubuntu 22.04 / 24.04**
-* Windows **16 GB RAM** (8 GB used by WSL)
+* Windows 10/11
+* Minimum **16 GB RAM recommended** (8 GB also works with limits)
 * ~15 GB free disk space
-* Sudo access
+* Internet connection
 
 ---
 
-## Prerequisites (Do This Once)
+## Pre-Installation (One Time)
 
-### 1) Enable WSL2 on Windows
+### Step 1: Install WSL
 
-Run **PowerShell as Administrator**:
+Open **PowerShell as Administrator** and run:
 
 ```powershell
-wsl --install
+wsl --install ubuntu
 ```
 
-Restart when asked.
-
-Docs: [https://learn.microsoft.com/windows/wsl/install](https://learn.microsoft.com/windows/wsl/install)
+Wait until it completes and **close PowerShell**.
 
 ---
 
-### 2) Install Ubuntu from Microsoft Store
+### Step 2: Enable Required Windows Features
 
-* Open Microsoft Store
-* Search **Ubuntu 22.04 LTS** or **Ubuntu 24.04 LTS**
-* Install → Open → set username & password
+1. Open **Start Menu** → search **Turn Windows features on or off**
 
-Store page: [https://apps.microsoft.com/search?query=ubuntu](https://apps.microsoft.com/search?query=ubuntu)
+2. Enable the following options:
 
----
+   * **Windows Subsystem for Linux**
+   * **Virtual Machine Platform**
+<img width="400" height="400" alt="image" src="https://github.com/user-attachments/assets/9904ae6e-7f4c-4e2a-b162-b2180f13ecec" />
 
-### 3) Check WSL Version (Must be WSL2)
-
-```powershell
-wsl -l -v
-```
-
-If Ubuntu shows **WSL 1**, convert:
-
-```powershell
-wsl --set-version Ubuntu 2
-```
+3. Click **OK** and **restart when prompted**
 
 ---
 
-## 4) Update Ubuntu (One Time)
-
-### Before running commands (important)
-
-#### Open PowerShell as Administrator
-- Press **Win + X → A**  
-  *(or search **PowerShell**, right-click → Run as administrator)*
-- From the PowerShell window, launch **Ubuntu**
-
-#### Enable easy paste in PowerShell
-1. **Left-click the top bar** of the PowerShell window  
-2. Click **Properties**
-3. Enable **Use Ctrl+Shift+V as Paste**
-4. Click **OK**
-
-**Paste shortcut:** `Ctrl + Shift + V`
-
----
-
-### Run inside Ubuntu
-```bash
-sudo apt update && sudo apt upgrade -y
-```
-
-## Important: WSL Memory Setup
+### Step 3: WSL Memory Setup (IMPORTANT)
 
 Create this file in **Windows**:
 
 ```
 C:\Users\<YOUR_WINDOWS_USERNAME>\.wslconfig
 ```
-Add this if you have 8GB RAM:
+
+> Replace `<YOUR_WINDOWS_USERNAME>` with your actual Windows user name.
+
+#### If your system has **8 GB RAM**
 
 ```ini
 [wsl2]
@@ -111,7 +79,7 @@ processors=2
 swap=2GB
 ```
 
-Add this if you have 16GB RAM:
+#### If your system has **16 GB RAM or more**
 
 ```ini
 [wsl2]
@@ -119,106 +87,59 @@ memory=8GB
 processors=4
 swap=2GB
 ```
+<img width="400" height="450" alt="image" src="https://github.com/user-attachments/assets/94c98c4c-562e-4ab6-85b3-bab8676b4298" />
 
-Restart WSL:
+
+Apply the changes:
 
 ```powershell
 wsl --shutdown
 ```
 
-Open Ubuntu again.
+Open **Ubuntu** again after this.
+
+---
+
+### Step 4: Open Ubuntu (WSL)
+
+After reboot:
+
+* Open **Ubuntu** from Start Menu **or**
+* Open **PowerShell / Command Prompt** and run:
+
+```powershell
+wsl
+```
+
+Create your Linux username and password when prompted.
 
 ---
 
 ## Installation
 
-### Recommended (One Command)
+Run the installer **inside Ubuntu (WSL)**:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/darshan-gowdaa/wsl-hadoop-installer/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/darshan-gowdaa/wsl-hadoop-installer/main/installv2.sh)
 ```
 
-During install, **allow Java & SSH in Windows Firewall** when prompted.
+During installation, allow **Java** and **SSH** in Windows Firewall if prompted.
 
 ---
 
-## After Install
+## If Something Fails
 
-```bash
-source ~/.bashrc
-~/start-hadoop.sh
-```
-
-Check services:
-
-```bash
-jps
-```
-
-You should see NameNode, DataNode, ResourceManager, NodeManager.
-
----
-
-## Web Interfaces
-
-* HDFS: [http://localhost:9870](http://localhost:9870)
-* YARN: [http://localhost:8088](http://localhost:8088)
-
----
-
-## Daily Usage (You Only Need These)
-
-```bash
-~/start-hadoop.sh    # start all
-~/stop-hadoop.sh     # stop all
-~/check-hadoop.sh    # status
-```
----
-
-## Common Problems & Fixes
-
-### Nothing starts
+Check logs:
 
 ```bash
 cat ~/hadoop_install.log
 ```
 
-### "Connection refused" on Web UIs
-
-**Windows Firewall blocked Java:**
-1. Open Windows Security → Firewall
-2. "Allow an app through firewall"
-3. Find "Java Platform SE binary"
-4. Check "Private networks"
-
-or just Disable AntiVirus
-
-### NameNode error (reset HDFS)
-
-```bash
-rm -rf ~/bigdata/hadoop/dfs/namenode/*
-rm ~/.hadoop_install_state
-./install.sh
-```
-
-### SSH error
-
-```bash
-sudo service ssh start
-ssh localhost exit
-```
-
-### After reboot, Hadoop stopped
+Restart after reboot:
 
 ```bash
 ~/start-hadoop.sh
 ```
-
-### Low memory / Java errors
-
-* `.wslconfig` not applied
-* Run `wsl --shutdown`
-* Reopen Ubuntu
 
 ---
 
@@ -230,30 +151,8 @@ rm -rf ~/bigdata
 rm ~/.hadoop_install_state
 ```
 
-Remove Hadoop lines from `~/.bashrc` manually.
+Remove Hadoop-related lines from `~/.bashrc` manually if needed.
 
 ---
 
-## Who This Is For
-
-* Students learning Hadoop, Spark, Pig
-* Lab work & practice
-* Not for production or clusters
-
----
-
-
-## Tips
-
-- Run `jps` to see what's running anytime
-- Logs are in `~/bigdata/hadoop/logs/` if something breaks
-- Kafka logs: `~/bigdata/kafka/kafka.log`
-- Script creates a tutorial file - check `/user/$USER/` in HDFS
-
-## Known Issues
-
-- Windows Firewall might block Java on first run → allow it
-- Services don't auto-start after WSL reboot → run `~/start-hadoop.sh`
-- Installing from `/mnt/c/` is 10x slower → script will warn you
-
-**Tested on:** WSL2 Ubuntu 22.04 / 24.04, Windows 11
+Tested on **WSL2 Ubuntu 22.04 / 24.04** with **Windows 11**
