@@ -453,9 +453,24 @@ install_pig() {
     cd "$INSTALL_DIR"
     
     if [ ! -d "pig-${PIG_VERSION}" ]; then
-        download_file \
-            "https://archive.apache.org/dist/pig/pig-${PIG_VERSION}/pig-${PIG_VERSION}.tar.gz" \
-            "pig.tgz" || error "Pig download failed"
+        local mirrors=(
+            "https://archive.apache.org/dist/pig/pig-${PIG_VERSION}/pig-${PIG_VERSION}.tar.gz"
+            "https://downloads.apache.org/pig/pig-${PIG_VERSION}/pig-${PIG_VERSION}.tar.gz"
+        )
+        
+        local downloaded=false
+        for mirror in "${mirrors[@]}"; do
+            if wget --progress=bar:force --timeout=60 --tries=2 -O "pig.tgz" "$mirror"; then
+                if [ -f "pig.tgz" ] && [ $(stat -c%s "pig.tgz" 2>/dev/null || echo 0) -gt 1000000 ]; then
+                    downloaded=true
+                    break
+                fi
+            fi
+        done
+        
+        if [ "$downloaded" = false ]; then
+             error "Pig download failed"
+        fi
         
         execute_with_spinner "Extracting Pig" tar -xzf pig.tgz
         rm pig.tgz
