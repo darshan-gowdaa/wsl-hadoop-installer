@@ -614,7 +614,7 @@ show_menu() {
     echo -e "  ${BOLD}2)${NC} Hadoop Only"
     echo -e "  ${BOLD}3)${NC} Spark Only"
     echo -e "  ${BOLD}4)${NC} Kafka Only"
-    echo -e "  ${BOLD}5)${NC} Pig Only"
+    echo -e "  ${BOLD}5)${NC} Pig Only [Beta Verison, may not work]"
     echo -e "  ${BOLD}6)${NC} Hive Only [Beta Verison, may not work]"
     echo ""
     echo -e "${CYAN}Management:${NC}"
