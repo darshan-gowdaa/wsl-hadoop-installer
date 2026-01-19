@@ -13,7 +13,7 @@ KAFKA_VERSION="${KAFKA_VERSION:-4.1.1}"
 PIG_VERSION="${PIG_VERSION:-0.17.0}"
 JAVA_11_VERSION="11"
 JAVA_17_VERSION="17"
-HIVE_VERSION="${HIVE_VERSION:-4.2.0}"
+HIVE_VERSION="${HIVE_VERSION:-3.1.3}"
 
 STATE_FILE="$HOME/.hadoop_install_state"
 LOG_FILE="$HOME/hadoop_install.log"
@@ -1169,7 +1169,7 @@ install_hive() {
         rm -f "apache-hive-${HIVE_VERSION}-bin.tar.gz"
         
         # Direct hardcoded URL for Hive
-        local HIVE_URL="https://downloads.apache.org/hive/hive-4.2.0/apache-hive-4.2.0-bin.tar.gz"
+        local HIVE_URL="https://archive.apache.org/dist/hive/hive-3.1.3/apache-hive-3.1.3-bin.tar.gz"
         echo -e "${BLUE}->${NC}  Downloading: apache-hive-${HIVE_VERSION}-bin.tar.gz"
         log "Using hardcoded URL: ${HIVE_URL}"
         
