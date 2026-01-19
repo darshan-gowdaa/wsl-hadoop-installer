@@ -817,68 +817,76 @@ install_spark() {
     
     cd "$INSTALL_DIR"
     
-    # Hardcoded Spark 3.5.8
     local SPARK_VERSION_ACTUAL="3.5.8"
     
     if [ ! -d "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3" ]; then
         rm -f "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
         
-        # Direct hardcoded URL for Spark 3.5.8
-    local SPARK_URL="https://downloads.apache.org/spark/spark-3.5.8/spark-3.5.8-bin-hadoop3.tgz"
-        
-        echo -e "${BLUE}->${NC}  Downloading: spark-3.5.8-bin-hadoop3.tgz"
-        log "Using hardcoded URL: ${SPARK_URL}"
-        
         local output="spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
         
-        # Download with progress
-        echo -e "${CYAN}Downloading from Apache servers... (This process is slow and might look stuck, be patient)${NC}"
+        # Try multiple mirrors with fallback
+        local SPARK_URLS=(
+            "https://downloads.apache.org/spark/spark-${SPARK_VERSION_ACTUAL}/spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
+            "http://mirrors.sonic.net/apache/spark/spark-${SPARK_VERSION_ACTUAL}/spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
+            "http://mirrors.ibiblio.org/apache/spark/spark-${SPARK_VERSION_ACTUAL}/spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
+            "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION_ACTUAL}/spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
+        )
         
-        if wget --progress=dot:giga --timeout=120 --tries=2 \
-                --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
-                -O "$output" "$SPARK_URL" 2>&1 | \
-                grep --line-buffered "%" | \
-                sed -u 's/\.//g' | \
-                while IFS= read -r line; do
-                    if [[ $line =~ ([0-9]+)% ]]; then
-                        local percent="${BASH_REMATCH[1]}"
-                        local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
-                        local empty=$((PROGRESS_BAR_WIDTH - filled))
-                        
-                        printf "\r${CYAN}[${NC}"
-                        printf "%${filled}s" | tr ' ' '='
-                        printf "%${empty}s" | tr ' ' '-'
-                        printf "${CYAN}]${NC} ${percent}%%"
-                    fi
-                done; then
+        echo -e "${BLUE}->${NC}  Downloading: spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
+        
+        local download_success=false
+        local mirror_count=1
+        
+        for SPARK_URL in "${SPARK_URLS[@]}"; do
+            echo -e "${YELLOW}[Mirror ${mirror_count}/${#SPARK_URLS[@]}] Trying: ${SPARK_URL}${NC}"
+            log "Attempting download from: ${SPARK_URL}"
             
-            printf "\n"
-            
-            local file_size
-            file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
-            
-            if [ "$file_size" -lt 1000000 ]; then
-                error "Downloaded file too small. Check your internet connection."
+            if wget --progress=bar:force --timeout=300 --tries=2 \
+                    --dns-timeout=30 --connect-timeout=60 --read-timeout=300 \
+                    -O "$output" "$SPARK_URL"; then
+                
+                local file_size
+                file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
+                
+                if [ "$file_size" -lt 1000000 ]; then
+                    warn "Downloaded file too small (${file_size} bytes). Trying next mirror..."
+                    rm -f "$output"
+                    ((mirror_count++))
+                    continue
+                fi
+                
+                if ! tar -tzf "$output" >/dev/null 2>&1; then
+                    warn "Downloaded file is corrupted. Trying next mirror..."
+                    rm -f "$output"
+                    ((mirror_count++))
+                    continue
+                fi
+                
+                echo -e "${GREEN}[OK]${NC} Downloaded: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
+                download_success=true
+                break
+            else
+                warn "Download failed. Trying next mirror..."
+                rm -f "$output"
+                ((mirror_count++))
+                continue
             fi
-            
-            if ! tar -tzf "$output" >/dev/null 2>&1; then
-                error "Downloaded file is corrupted. Please try again."
-            fi
-            
-            echo -e "${GREEN}[OK]${NC} Downloaded: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
-        else
-            error "Failed to download Spark. Please check your internet connection."
+        done
+        
+        if [ "$download_success" = false ]; then
+            error "Failed to download Spark from all mirrors. Please check your internet connection."
         fi
         
         log "Extracting Spark..."
-        (tar -xzf "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz") &
-        spinner $! "Extracting Spark archive"
+        tar -xzf "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
+        echo -e "${GREEN}[OK]${NC} Extracted successfully"
     fi
     
     rm -f spark
     ln -s "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3" spark
     
-    # Setup Spark Env
+    # Setup Spark Environment
+    log "Configuring Spark environment..."
     cp "$INSTALL_DIR/spark/conf/spark-env.sh.template" "$INSTALL_DIR/spark/conf/spark-env.sh" 2>/dev/null || touch "$INSTALL_DIR/spark/conf/spark-env.sh"
     
     cat >> "$INSTALL_DIR/spark/conf/spark-env.sh" <<EOF
@@ -898,8 +906,9 @@ spark.history.fs.logDirectory    hdfs://localhost:9000/spark-logs
 EOF
     
     mark_done "spark_install"
-    echo -e "${GREEN}[OK] Spark 3.5.8 installed successfully${NC}"
+    echo -e "${GREEN}[OK] Spark ${SPARK_VERSION_ACTUAL} installed successfully${NC}"
 }
+
 
 # Kafka Installation
 install_kafka() {
