@@ -68,7 +68,7 @@ download_file() {
     )
     
     for mirror in "${mirrors[@]}"; do
-        if wget -q --show-progress --timeout=60 -O "$output" "$mirror" 2>&1; then
+        if wget --progress=bar:force --timeout=60 --tries=2 -O "$output" "$mirror" 2>&1; then
             [ -f "$output" ] && [ $(stat -c%s "$output") -gt 1000000 ] && return 0
             rm -f "$output"
         fi
