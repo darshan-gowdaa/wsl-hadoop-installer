@@ -489,47 +489,80 @@ acquire_lock() {
 download_with_retry() {
     local url=$1
     local output=$2
+    local retries=3
     
-    local filename=$(basename "$output")
+    local filename=$(basename "$url")
+    local path=$(dirname "$url" | sed 's|https://[^/]*/||')
     
     # Mirrors
     local MIRRORS=(
-        "$url"
-        "https://dlcdn.apache.org/$(echo $url | sed 's|https://[^/]*/||')"
-        "https://downloads.apache.org/$(echo $url | sed 's|https://[^/]*/||')"
-        "https://archive.apache.org/dist/$(echo $url | sed 's|https://[^/]*/||')"
+        "https://downloads.apache.org/${path}/${filename}"
+        "https://dlcdn.apache.org/${path}/${filename}"
+        "https://archive.apache.org/dist/${path}/${filename}"
     )
     
-    local downloaded=false
+    echo -e "${BLUE}⬇${NC}  Downloading: ${filename}"
     
     for mirror in "${MIRRORS[@]}"; do
-        echo -e "${BLUE}->${NC}  Trying: $mirror"
+        log "Trying mirror: ${mirror}"
         
-        if wget --progress=bar:force --timeout=60 --tries=2 \
-                -O "$output" "$mirror" 2>&1; then
+        for i in $(seq 1 $retries); do
+            rm -f "$output"
             
-            # Verify file size
-            if [ -f "$output" ] && [ $(stat -c%s "$output" 2>/dev/null || echo 0) -gt 1000000 ]; then
-                echo -e "${GREEN}[OK]${NC} Download successful!"
-                downloaded=true
-                break
+            echo -e "${CYAN}Attempt $i/$retries...${NC}"
+            
+            if wget --progress=dot:giga --timeout=120 --tries=1 \
+                    --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
+                    -O "$output" "$mirror" 2>&1 | \
+                    grep --line-buffered "%" | \
+                    sed -u 's/\.//g' | \
+                    while IFS= read -r line; do
+                        if [[ $line =~ ([0-9]+)% ]]; then
+                            local percent="${BASH_REMATCH[1]}"
+                            local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
+                            local empty=$((PROGRESS_BAR_WIDTH - filled))
+                            
+                            printf "\r${CYAN}[${NC}"
+                            printf "%${filled}s" | tr ' ' '█'
+                            printf "%${empty}s" | tr ' ' '░'
+                            printf "${CYAN}]${NC} ${percent}%%"
+                        fi
+                    done; then
+                
+                printf "\n"
+                
+                local file_size
+                file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
+                
+                # Verify file size
+                if [ "$file_size" -lt 1000000 ]; then
+                    warn "Downloaded file too small ($file_size bytes), retrying..."
+                    rm -f "$output"
+                    continue
+                fi
+                
+                # Verify archive
+                if tar -tzf "$output" >/dev/null 2>&1 || file "$output" 2>/dev/null | grep -q "gzip compressed"; then
+                    echo -e "${GREEN}✓${NC} Downloaded and verified: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
+                    return 0
+                else
+                    warn "Downloaded file corrupted, retrying..."
+                    rm -f "$output"
+                fi
             else
-                warn "File too small, trying next mirror..."
+                warn "Download failed, retrying..."
                 rm -f "$output"
             fi
-        else
-            warn "Mirror failed, trying next..."
-            rm -f "$output"
-        fi
+            
+            sleep 3
+        done
         
+        log "Mirror ${mirror} failed after ${retries} attempts, trying next mirror..."
         sleep 2
     done
     
-    if [ "$downloaded" = false ]; then
-        error "Failed to download ${filename} from all mirrors."
-    fi
-    
-    return 0
+    error "Failed to download ${filename} after trying all mirrors"
+    return 1
 }
 
 
