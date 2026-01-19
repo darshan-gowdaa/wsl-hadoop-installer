@@ -900,7 +900,7 @@ install_spark() {
         local output="spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
         
         # Download with progress
-        echo -e "${CYAN}Downloading from Apache servers...${NC}"
+        echo -e "${CYAN}Downloading from Apache servers... (This pross is slow and look stuck, be patient)${NC}"
         
         if wget --progress=dot:giga --timeout=120 --tries=2 \
                 --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
@@ -914,8 +914,8 @@ install_spark() {
                         local empty=$((PROGRESS_BAR_WIDTH - filled))
                         
                         printf "\r${CYAN}[${NC}"
-                        printf "%${filled}s" | tr ' ' '█'
-                        printf "%${empty}s" | tr ' ' '░'
+                        printf "%${filled}s" | tr ' ' '='
+                        printf "%${empty}s" | tr ' ' '-'
                         printf "${CYAN}]${NC} ${percent}%%"
                     fi
                 done; then
@@ -1156,9 +1156,52 @@ install_hive() {
     if [ ! -d "apache-hive-${HIVE_VERSION}-bin" ]; then
         rm -f "apache-hive-${HIVE_VERSION}-bin.tar.gz"
         
-        download_with_retry \
-            "https://dlcdn.apache.org/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz" \
-            "apache-hive-${HIVE_VERSION}-bin.tar.gz"
+        # Direct hardcoded URL for Hive
+        local HIVE_URL="https://downloads.apache.org/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz"
+        
+        echo -e "${BLUE}->${NC}  Downloading: apache-hive-${HIVE_VERSION}-bin.tar.gz"
+        log "Using hardcoded URL: ${HIVE_URL}"
+        
+        local output="apache-hive-${HIVE_VERSION}-bin.tar.gz"
+        
+        # Download with progress
+        echo -e "${CYAN}Downloading from Apache servers... (This process is slow and might look stuck, be patient)${NC}"
+        
+        if wget --progress=dot:giga --timeout=120 --tries=2 \
+                --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
+                -O "$output" "$HIVE_URL" 2>&1 | \
+                grep --line-buffered "%" | \
+                sed -u 's/\.//g' | \
+                while IFS= read -r line; do
+                    if [[ $line =~ ([0-9]+)% ]]; then
+                        local percent="${BASH_REMATCH[1]}"
+                        local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
+                        local empty=$((PROGRESS_BAR_WIDTH - filled))
+                        
+                        printf "\r${CYAN}[${NC}"
+                        printf "%${filled}s" | tr ' ' '='
+                        printf "%${empty}s" | tr ' ' '-'
+                        printf "${CYAN}]${NC} ${percent}%%"
+                    fi
+                done; then
+            
+            printf "\n"
+            
+            local file_size
+            file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
+            
+            if [ "$file_size" -lt 1000000 ]; then
+                error "Downloaded file too small. Check your internet connection."
+            fi
+            
+            if ! tar -tzf "$output" >/dev/null 2>&1; then
+                error "Downloaded file is corrupted. Please try again."
+            fi
+            
+            echo -e "${GREEN}[OK]${NC} Downloaded: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
+        else
+            error "Failed to download Hive. Please check your internet connection."
+        fi
         
         log "Extracting Hive..."
         (tar -xzf "apache-hive-${HIVE_VERSION}-bin.tar.gz") &
