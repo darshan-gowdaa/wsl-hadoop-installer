@@ -1,9 +1,6 @@
 #!/bin/bash
 
-# Author: Darshan Gowda
-# Link: https://darshan-gowdaa.tech
-
-# WSL Hadoop Ecosystem Installation Script
+# WSL Hadoop Ecosystem Installation Script!!
 # Installs: Hadoop, YARN, Spark, Kafka (KRaft), Pig
 
 set -Eeuo pipefail
@@ -16,7 +13,7 @@ KAFKA_VERSION="${KAFKA_VERSION:-4.1.1}"
 PIG_VERSION="${PIG_VERSION:-0.17.0}"
 JAVA_11_VERSION="11"
 JAVA_17_VERSION="17"
-
+HIVE_VERSION="${HIVE_VERSION:-3.1.3}"
 
 STATE_FILE="$HOME/.hadoop_install_state"
 LOG_FILE="$HOME/hadoop_install.log"
@@ -489,80 +486,47 @@ acquire_lock() {
 download_with_retry() {
     local url=$1
     local output=$2
-    local retries=3
     
-    local filename=$(basename "$url")
-    local path=$(dirname "$url" | sed 's|https://[^/]*/||')
+    local filename=$(basename "$output")
     
     # Mirrors
     local MIRRORS=(
-        "https://downloads.apache.org/${path}/${filename}"
-        "https://dlcdn.apache.org/${path}/${filename}"
-        "https://archive.apache.org/dist/${path}/${filename}"
+        "$url"
+        "https://dlcdn.apache.org/$(echo $url | sed 's|https://[^/]*/||')"
+        "https://downloads.apache.org/$(echo $url | sed 's|https://[^/]*/||')"
+        "https://archive.apache.org/dist/$(echo $url | sed 's|https://[^/]*/||')"
     )
     
-    echo -e "${BLUE}⬇${NC}  Downloading: ${filename}"
+    local downloaded=false
     
     for mirror in "${MIRRORS[@]}"; do
-        log "Trying mirror: ${mirror}"
+        echo -e "${BLUE}->${NC}  Trying: $mirror"
         
-        for i in $(seq 1 $retries); do
-            rm -f "$output"
+        if wget --progress=bar:force --timeout=60 --tries=2 \
+                -O "$output" "$mirror" 2>&1; then
             
-            echo -e "${CYAN}Attempt $i/$retries...${NC}"
-            
-            if wget --progress=dot:giga --timeout=120 --tries=1 \
-                    --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
-                    -O "$output" "$mirror" 2>&1 | \
-                    grep --line-buffered "%" | \
-                    sed -u 's/\.//g' | \
-                    while IFS= read -r line; do
-                        if [[ $line =~ ([0-9]+)% ]]; then
-                            local percent="${BASH_REMATCH[1]}"
-                            local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
-                            local empty=$((PROGRESS_BAR_WIDTH - filled))
-                            
-                            printf "\r${CYAN}[${NC}"
-                            printf "%${filled}s" | tr ' ' '█'
-                            printf "%${empty}s" | tr ' ' '░'
-                            printf "${CYAN}]${NC} ${percent}%%"
-                        fi
-                    done; then
-                
-                printf "\n"
-                
-                local file_size
-                file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
-                
-                # Verify file size
-                if [ "$file_size" -lt 1000000 ]; then
-                    warn "Downloaded file too small ($file_size bytes), retrying..."
-                    rm -f "$output"
-                    continue
-                fi
-                
-                # Verify archive
-                if tar -tzf "$output" >/dev/null 2>&1 || file "$output" 2>/dev/null | grep -q "gzip compressed"; then
-                    echo -e "${GREEN}✓${NC} Downloaded and verified: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
-                    return 0
-                else
-                    warn "Downloaded file corrupted, retrying..."
-                    rm -f "$output"
-                fi
+            # Verify file size
+            if [ -f "$output" ] && [ $(stat -c%s "$output" 2>/dev/null || echo 0) -gt 1000000 ]; then
+                echo -e "${GREEN}[OK]${NC} Download successful!"
+                downloaded=true
+                break
             else
-                warn "Download failed, retrying..."
+                warn "File too small, trying next mirror..."
                 rm -f "$output"
             fi
-            
-            sleep 3
-        done
+        else
+            warn "Mirror failed, trying next..."
+            rm -f "$output"
+        fi
         
-        log "Mirror ${mirror} failed after ${retries} attempts, trying next mirror..."
         sleep 2
     done
     
-    error "Failed to download ${filename} after trying all mirrors"
-    return 1
+    if [ "$downloaded" = false ]; then
+        error "Failed to download ${filename} from all mirrors."
+    fi
+    
+    return 0
 }
 
 
@@ -573,7 +537,7 @@ setup_system() {
         return
     fi
     
-    step_header 1 9 "System Setup"
+    step_header 1 11 "System Setup"
     
     log "Updating package lists..."
     (sudo apt-get update -qq) &
@@ -584,7 +548,7 @@ setup_system() {
     echo -e "${YELLOW}Note: Installing both Java 11 (for Hadoop) and Java 17 (for Kafka)${NC}"
     
     # Package list
-    local packages=(openjdk-11-jdk openjdk-17-jdk wget curl ssh netcat-openbsd vim net-tools rsync tar gzip unzip util-linux file)
+    local packages=(openjdk-11-jdk openjdk-17-jdk wget curl ssh netcat-openbsd vim net-tools rsync tar gzip unzip util-linux file mysql-server)
     
     (sudo apt-get install -y "${packages[@]}" -qq) &
     spinner $! "Installing Java 11, Java 17, and dependencies"
@@ -646,7 +610,12 @@ SSHCONFIG
         chmod 600 ~/.ssh/config
     fi
 
-
+    # Start MySQL service
+    if ! pgrep -x mysqld >/dev/null; then
+        log "Starting MySQL service..."
+        (sudo service mysql start) &
+        spinner $! "Starting MySQL"
+    fi
 
     # Start SSH service
     if ! pgrep -x sshd >/dev/null; then
@@ -666,7 +635,7 @@ setup_java() {
         return
     fi
     
-    step_header 2 9 "Java Configuration"
+    step_header 2 11 "Java Configuration"
     
     # Detect JAVA_HOME
     local temp_file="/tmp/java_home_$$"
@@ -727,7 +696,7 @@ install_hadoop() {
         return
     fi
     
-    step_header 3 9 "Hadoop ${HADOOP_VERSION} Installation"
+    step_header 3 11 "Hadoop ${HADOOP_VERSION} Installation"
     
     mkdir -p "$INSTALL_DIR"
     cd "$INSTALL_DIR"
@@ -740,7 +709,6 @@ install_hadoop() {
             "hadoop-${HADOOP_VERSION}.tar.gz"
         
         log "Extracting Hadoop..."
-        echo -e "${YELLOW}Screen might flicker and Desktop may reload not panic, wait...${NC}"
         (tar -xzf "hadoop-${HADOOP_VERSION}.tar.gz") &
         spinner $! "Extracting Hadoop archive"
     fi
@@ -759,7 +727,7 @@ configure_hadoop() {
         return
     fi
     
-    step_header 4 9 "Hadoop Configuration"
+    step_header 4 11 "Hadoop Configuration"
     
     export HADOOP_HOME="$INSTALL_DIR/hadoop"
     export HADOOP_CONF_DIR="$HADOOP_HOME/etc/hadoop"
@@ -913,25 +881,70 @@ install_spark() {
         return
     fi
     
-    step_header 5 9 "Spark ${SPARK_VERSION} Installation"
+    step_header 5 11 "Spark 3.5.8 Installation"
     
     cd "$INSTALL_DIR"
     
-    if [ ! -d "spark-${SPARK_VERSION}-bin-hadoop3" ]; then
-        rm -f "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
+    # Hardcoded Spark 3.5.8
+    local SPARK_VERSION_ACTUAL="3.5.8"
+    
+    if [ ! -d "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3" ]; then
+        rm -f "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
         
-        download_with_retry \
-            "https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
-            "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
+        # Direct hardcoded URL for Spark 3.5.8
+    local SPARK_URL="https://downloads.apache.org/spark/spark-3.5.8/spark-3.5.8-bin-hadoop3.tgz"
+        
+        echo -e "${BLUE}->${NC}  Downloading: spark-3.5.8-bin-hadoop3.tgz"
+        log "Using hardcoded URL: ${SPARK_URL}"
+        
+        local output="spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
+        
+        # Download with progress
+        echo -e "${CYAN}Downloading from Apache servers...${NC}"
+        
+        if wget --progress=dot:giga --timeout=120 --tries=2 \
+                --dns-timeout=30 --connect-timeout=60 --read-timeout=120 \
+                -O "$output" "$SPARK_URL" 2>&1 | \
+                grep --line-buffered "%" | \
+                sed -u 's/\.//g' | \
+                while IFS= read -r line; do
+                    if [[ $line =~ ([0-9]+)% ]]; then
+                        local percent="${BASH_REMATCH[1]}"
+                        local filled=$((percent * PROGRESS_BAR_WIDTH / 100))
+                        local empty=$((PROGRESS_BAR_WIDTH - filled))
+                        
+                        printf "\r${CYAN}[${NC}"
+                        printf "%${filled}s" | tr ' ' '█'
+                        printf "%${empty}s" | tr ' ' '░'
+                        printf "${CYAN}]${NC} ${percent}%%"
+                    fi
+                done; then
+            
+            printf "\n"
+            
+            local file_size
+            file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
+            
+            if [ "$file_size" -lt 1000000 ]; then
+                error "Downloaded file too small. Check your internet connection."
+            fi
+            
+            if ! tar -tzf "$output" >/dev/null 2>&1; then
+                error "Downloaded file is corrupted. Please try again."
+            fi
+            
+            echo -e "${GREEN}[OK]${NC} Downloaded: $(echo $file_size | awk '{print int($1/1024/1024)"MB"}')"
+        else
+            error "Failed to download Spark. Please check your internet connection."
+        fi
         
         log "Extracting Spark..."
-        echo -e "${YELLOW}Screen might flicker and Desktop may reload not panic, wait...${NC}"
-        (tar -xzf "spark-${SPARK_VERSION}-bin-hadoop3.tgz") &
+        (tar -xzf "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz") &
         spinner $! "Extracting Spark archive"
     fi
     
     rm -f spark
-    ln -s "spark-${SPARK_VERSION}-bin-hadoop3" spark
+    ln -s "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3" spark
     
     # Setup Spark Env
     cp "$INSTALL_DIR/spark/conf/spark-env.sh.template" "$INSTALL_DIR/spark/conf/spark-env.sh" 2>/dev/null || touch "$INSTALL_DIR/spark/conf/spark-env.sh"
@@ -953,7 +966,7 @@ spark.history.fs.logDirectory    hdfs://localhost:9000/spark-logs
 EOF
     
     mark_done "spark_install"
-    echo -e "${GREEN}[OK] Spark ${SPARK_VERSION} installed successfully${NC}"
+    echo -e "${GREEN}[OK] Spark 3.5.8 installed successfully${NC}"
 }
 
 # Kafka Installation
@@ -963,7 +976,7 @@ install_kafka() {
         return
     fi
     
-    step_header 6 9 "Kafka ${KAFKA_VERSION} Installation"
+    step_header 6 11 "Kafka ${KAFKA_VERSION} Installation"
     
     if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
         export JAVA_17_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
@@ -984,7 +997,6 @@ install_kafka() {
             "kafka_${kafka_scala}-${KAFKA_VERSION}.tgz"
         
         log "Extracting Kafka..."
-        echo -e "${YELLOW}Screen might flicker and Desktop may reload not panic, wait...${NC}"
         (tar -xzf "kafka_${kafka_scala}-${KAFKA_VERSION}.tgz") &
         spinner $! "Extracting Kafka archive"
     fi
@@ -1072,7 +1084,7 @@ install_pig() {
         return
     fi
     
-    step_header 7 9 "Pig 0.17.0 Installation"
+    step_header 7 11 "Pig 0.17.0 Installation"
     
     cd "$INSTALL_DIR"
     
@@ -1119,7 +1131,6 @@ install_pig() {
         fi
         
         log "Extracting Pig..."
-        echo -e "${YELLOW}Screen might flicker and Desktop may reload dont panic, be patient...${NC}"
         (tar -xzf "pig-0.17.0.tar.gz") &
         spinner $! "Extracting Pig archive"
     fi
@@ -1131,7 +1142,139 @@ install_pig() {
     echo -e "${GREEN}[OK] Pig 0.17.0 installed successfully${NC}"
 }
 
+# Hive Installation
+install_hive() {
+    if is_done "hive_install"; then
+        log "Hive already installed, skipping..."
+        return
+    fi
+    
+    step_header 8 11 "Hive ${HIVE_VERSION} Installation"
+    
+    cd "$INSTALL_DIR"
+    
+    if [ ! -d "apache-hive-${HIVE_VERSION}-bin" ]; then
+        rm -f "apache-hive-${HIVE_VERSION}-bin.tar.gz"
+        
+        download_with_retry \
+            "https://dlcdn.apache.org/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz" \
+            "apache-hive-${HIVE_VERSION}-bin.tar.gz"
+        
+        log "Extracting Hive..."
+        (tar -xzf "apache-hive-${HIVE_VERSION}-bin.tar.gz") &
+        spinner $! "Extracting Hive archive"
+    fi
+    
+    rm -f hive
+    ln -s "apache-hive-${HIVE_VERSION}-bin" hive
+    
+    mark_done "hive_install"
+    echo -e "${GREEN}[OK] Hive installed successfully${NC}"
+}
 
+configure_hive() {
+    if is_done "hive_config"; then
+        log "Hive already configured, skipping..."
+        return
+    fi
+    
+    step_header 9 11 "Hive Configuration"
+    
+    export HIVE_HOME="$INSTALL_DIR/hive"
+    export HADOOP_HOME="$INSTALL_DIR/hadoop"
+    
+    log "Configuring MySQL for Hive metastore..."
+    
+    if ! pgrep -x mysqld >/dev/null; then
+        (sudo service mysql start) &
+        spinner $! "Starting MySQL"
+    fi
+    
+    log "Creating Hive metastore database..."
+    sudo mysql -u root <<MYSQL_SCRIPT 2>/dev/null || true
+CREATE DATABASE IF NOT EXISTS metastore;
+CREATE USER IF NOT EXISTS 'hiveuser'@'localhost' IDENTIFIED BY 'hivepassword';
+GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'localhost';
+FLUSH PRIVILEGES;
+MYSQL_SCRIPT
+    
+    log "Downloading MySQL JDBC connector..."
+    cd "$HIVE_HOME/lib"
+    if [ ! -f "mysql-connector-java-8.0.30.jar" ]; then
+        wget -q https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.30/mysql-connector-java-8.0.30.jar
+    fi
+    
+    rm -f "$HIVE_HOME/lib/guava-19.0.jar" 2>/dev/null || true
+    cp "$HADOOP_HOME/share/hadoop/common/lib/guava-"*.jar "$HIVE_HOME/lib/" 2>/dev/null || true
+    
+    log "Creating Hive configuration files..."
+    mkdir -p "$HIVE_HOME/conf"
+    
+    cat > "$HIVE_HOME/conf/hive-site.xml" <<'HIVESITE'
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <property>
+        <name>javax.jdo.option.ConnectionURL</name>
+        <value>jdbc:mysql://localhost:3306/metastore?createDatabaseIfNotExist=true&amp;useSSL=false</value>
+    </property>
+    <property>
+        <name>javax.jdo.option.ConnectionDriverName</name>
+        <value>com.mysql.cj.jdbc.Driver</value>
+    </property>
+    <property>
+        <name>javax.jdo.option.ConnectionUserName</name>
+        <value>hiveuser</value>
+    </property>
+    <property>
+        <name>javax.jdo.option.ConnectionPassword</name>
+        <value>hivepassword</value>
+    </property>
+    <property>
+        <name>hive.metastore.warehouse.dir</name>
+        <value>/user/hive/warehouse</value>
+    </property>
+    <property>
+        <name>hive.metastore.uris</name>
+        <value>thrift://localhost:9083</value>
+    </property>
+    <property>
+        <name>hive.server2.thrift.port</name>
+        <value>10000</value>
+    </property>
+    <property>
+        <name>hive.server2.thrift.bind.host</name>
+        <value>localhost</value>
+    </property>
+    <property>
+        <name>hive.server2.enable.doAs</name>
+        <value>false</value>
+    </property>
+    <property>
+        <name>hive.metastore.schema.verification</name>
+        <value>false</value>
+    </property>
+    <property>
+        <name>datanucleus.schema.autoCreateAll</name>
+        <value>true</value>
+    </property>
+    <property>
+        <name>hive.exec.scratchdir</name>
+        <value>/tmp/hive</value>
+    </property>
+</configuration>
+HIVESITE
+    
+    cat > "$HIVE_HOME/conf/hive-env.sh" <<EOF
+export HADOOP_HOME=$HADOOP_HOME
+export HIVE_CONF_DIR=$HIVE_HOME/conf
+export HIVE_AUX_JARS_PATH=$HIVE_HOME/lib
+EOF
+    
+    chmod +x "$HIVE_HOME/conf/hive-env.sh"
+    
+    mark_done "hive_config"
+    echo -e "${GREEN}[OK] Hive configured successfully${NC}"
+}
 
 
 # Environment Setup
@@ -1141,13 +1284,13 @@ setup_environment() {
         return
     fi
     
-    step_header 8 9 "Environment Configuration"
+    step_header 10 11 "Environment Configuration"
     
     export HADOOP_HOME="$INSTALL_DIR/hadoop"
     export SPARK_HOME="$INSTALL_DIR/spark"
     export KAFKA_HOME="$INSTALL_DIR/kafka"
     export PIG_HOME="$INSTALL_DIR/pig"
-
+    export HIVE_HOME="$INSTALL_DIR/hive"
     
     # Ensure Java 17 is available for Kafka
     if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
@@ -1164,7 +1307,7 @@ export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
 export SPARK_HOME=$HOME/bigdata/spark
 export KAFKA_HOME=$HOME/bigdata/kafka
 export PIG_HOME=$HOME/bigdata/pig
-
+export HIVE_HOME=$HOME/bigdata/hive
 
 # Java Configuration
 # Java 11 for Hadoop ecosystem
@@ -1175,7 +1318,7 @@ export PATH=$JAVA_HOME/bin:$PATH
 export JAVA_17_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 
 # Add tool directories to PATH
-export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$PIG_HOME/bin:$PATH
+export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$PIG_HOME/bin:$HIVE_HOME/bin:$PATH
 
 # Wrapper functions for Kafka (needs Java 17)
 
@@ -1224,7 +1367,7 @@ format_hdfs() {
         return
     fi
     
-    step_header 9 9 "HDFS Initialization"
+    step_header 11 11 "HDFS Initialization"
     
     export HADOOP_HOME="${HADOOP_HOME:-$INSTALL_DIR/hadoop}"
     
@@ -1259,7 +1402,12 @@ INSTALL_DIR="$INSTALL_DIR"
 echo -e "\033[0;32mStarting Hadoop Ecosystem...\033[0m"
 echo ""
 
-
+# Start MySQL
+if ! pgrep -x mysqld > /dev/null; then
+    echo "Starting MySQL service..."
+    sudo service mysql start
+    sleep 2
+fi
 
 # Start SSH
 if ! pgrep -x sshd > /dev/null; then
@@ -1292,7 +1440,25 @@ if ! "\$INSTALL_DIR/hadoop/bin/hdfs" dfs -test -d /user/\$USER 2>/dev/null; then
     "\$INSTALL_DIR/hadoop/bin/hdfs" dfs -chmod 755 /user/\$USER 2>/dev/null || true
 fi
 
+# Create Hive warehouse directory
+if ! "\$INSTALL_DIR/hadoop/bin/hdfs" dfs -test -d /user/hive/warehouse 2>/dev/null; then
+    echo "Creating Hive warehouse directory..."
+    "\$INSTALL_DIR/hadoop/bin/hdfs" dfs -mkdir -p /user/hive/warehouse 2>/dev/null || true
+    "\$INSTALL_DIR/hadoop/bin/hdfs" dfs -mkdir -p /tmp/hive 2>/dev/null || true
+    "\$INSTALL_DIR/hadoop/bin/hdfs" dfs -chmod 777 /user/hive/warehouse 2>/dev/null || true
+    "\$INSTALL_DIR/hadoop/bin/hdfs" dfs -chmod 777 /tmp/hive 2>/dev/null || true
+fi
 
+# Start Hive Metastore
+if ! pgrep -f "HiveMetaStore" > /dev/null; then
+    echo "Starting Hive Metastore..."
+    nohup "\$INSTALL_DIR/hive/bin/hive" --service metastore \\
+        > "\$INSTALL_DIR/hive/metastore.log" 2>&1 &
+    echo \$! > "\$INSTALL_DIR/hive/metastore.pid"
+    sleep 3
+else
+    echo "Hive Metastore already running"
+fi
 
 # Start Kafka
 if ! pgrep -f "kafka.Kafka" > /dev/null; then
@@ -1327,7 +1493,10 @@ echo ""
 "\$INSTALL_DIR/hadoop/sbin/stop-yarn.sh" 2>/dev/null || true
 "\$INSTALL_DIR/hadoop/sbin/stop-dfs.sh" 2>/dev/null || true
 
-
+if pgrep -f "HiveMetaStore" > /dev/null; then
+    pkill -f HiveMetaStore
+    rm -f "\$INSTALL_DIR/hive/metastore.pid"
+fi
 
 if pgrep -f "kafka.Kafka" > /dev/null; then
     pkill -f kafka.Kafka
@@ -1352,7 +1521,7 @@ jps 2>/dev/null || echo "jps not found"
 
 echo ""
 echo "Service Status:"
-services=("NameNode:9870" "DataNode:9864" "ResourceManager:8088" "NodeManager:8042" "Kafka:9092")
+services=("NameNode:9870" "DataNode:9864" "ResourceManager:8088" "NodeManager:8042" "Kafka:9092" "HiveMetaStore:9083")
 for service in "\${services[@]}"; do
     IFS=':' read -r name port <<< "\$service"
     if nc -z localhost "\$port" 2>/dev/null; then
@@ -1394,7 +1563,7 @@ RESTARTSCRIPT
 
 # Start Services
 start_services() {
-    step_header "Run" 9 "Starting Services"
+    step_header "Run" 11 "Starting Services"
     
     export HADOOP_HOME="${HADOOP_HOME:-$INSTALL_DIR/hadoop}"
     export HADOOP_CONF_DIR="${HADOOP_CONF_DIR:-$HADOOP_HOME/etc/hadoop}"
@@ -1455,7 +1624,35 @@ start_services() {
         fi
     done
 
+    log "Creating Hive warehouse directory..."
+    sleep 1
 
+    for attempt in $(seq 1 3); do
+        if "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/hive/warehouse 2>/dev/null; then
+            "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /tmp/hive 2>/dev/null || true
+            "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /user/hive/warehouse 2>/dev/null || true
+            "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /tmp/hive 2>/dev/null || true
+            echo -e "${GREEN}[OK]${NC} Hive directories created"
+            break
+        else
+            if [ $attempt -lt 3 ]; then
+                sleep 2
+            fi
+        fi
+    done
+
+    log "Initializing Hive Metastore schema..."
+    if ! "$INSTALL_DIR/hive/bin/schematool" -dbType mysql -info 2>/dev/null | grep -q "schemaTool completed"; then
+        "$INSTALL_DIR/hive/bin/schematool" -dbType mysql -initSchema 2>/dev/null || true
+    fi
+
+    log "Starting Hive Metastore..."
+    nohup "$INSTALL_DIR/hive/bin/hive" --service metastore \
+        > "$INSTALL_DIR/hive/metastore.log" 2>&1 &
+    metastore_pid=$!
+    echo $metastore_pid > "$INSTALL_DIR/hive/metastore.pid"
+    echo -e "${GREEN}✓${NC} Starting Hive Metastore... ${GREEN}Done${NC}"
+    sleep 2
 
     log "Creating user HDFS directory..."
     sleep 1
@@ -1517,7 +1714,7 @@ verify_installation() {
     echo ""
     
     echo -e "${BOLD}Service Health Check:${NC}"
-    local services=("NameNode:9870" "DataNode:9864" "ResourceManager:8088" "NodeManager:8042" "Kafka:9092")
+    local services=("NameNode:9870" "DataNode:9864" "ResourceManager:8088" "NodeManager:8042" "Kafka:9092" "HiveMetaStore:9083")
     for service in "${services[@]}"; do
         IFS=':' read -r name port <<< "$service"
         if nc -z localhost "$port" 2>/dev/null; then
@@ -1567,7 +1764,9 @@ ${BOLD}${YELLOW}Quick Tests:${NC}
   ${CYAN}# Kafka${NC}
   kafka-topics.sh --create --topic test --bootstrap-server localhost:9092
 
-
+  ${CYAN}# Hive${NC}
+  hive
+  beeline -u jdbc:hive2://localhost:10000
 
 ${BOLD}${YELLOW}Next Steps:${NC}
   1. ${CYAN}source ~/.bashrc${NC}
@@ -1597,7 +1796,8 @@ main() {
     install_spark
     install_kafka
     install_pig
-
+    install_hive
+    configure_hive
     setup_environment
     format_hdfs
     create_helper_scripts
