@@ -1599,7 +1599,7 @@ echo -e "\033[0;32m[OK] All services stopped\033[0m"
 STOPSCRIPT
 
     # Check script
-    cat > "$HOME/check-hadoop.sh" <<CHECKSCRIPT
+    cat > "$HOME/check-hadoop.sh" <<'CHECKSCRIPT'
 #!/bin/bash
 
 INSTALL_DIR="$INSTALL_DIR"
@@ -1614,24 +1614,24 @@ jps 2>/dev/null || echo "jps not found"
 echo ""
 echo "Service Status:"
 services=("NameNode:9870" "DataNode:9864" "ResourceManager:8088" "NodeManager:8042" "Kafka:9092" "HiveMetaStore:9083")
-for service in "\${services[@]}"; do
-    IFS=':' read -r name port <<< "\$service"
-    if nc -z localhost "\$port" 2>/dev/null; then
-        printf "  ✓ %-20s (port %s)\\n" "\$name" "\$port"
+for service in "${services[@]}"; do
+    IFS=':' read -r name port <<< "$service"
+    if nc -z localhost "$port" 2>/dev/null; then
+        printf "  [OK] %-20s (port %s)\n" "$name" "$port"
     else
-        printf "  ✗ %-20s (port %s)\\n" "\$name" "\$port"
+        printf "  [X]  %-20s (port %s)\n" "$name" "$port"
     fi
 done
 
 echo ""
 echo "HDFS:"
-"\$INSTALL_DIR/hadoop/bin/hdfs" dfsadmin -report 2>/dev/null | head -10
+"$INSTALL_DIR/hadoop/bin/hdfs" dfsadmin -report 2>/dev/null | head -10
 
 echo ""
 echo "Versions:"
-echo "  Hadoop: \$("\$INSTALL_DIR/hadoop/bin/hadoop" version | head -1)"
-echo "  Spark: \$("\$INSTALL_DIR/spark/bin/spark-submit" --version 2>&1 | grep version | head -1)"
-[ -f "\$INSTALL_DIR/kafka/.cluster-id" ] && echo "  Kafka: \$(cat "\$INSTALL_DIR/kafka/.cluster-id")"
+echo "  Hadoop: $("$INSTALL_DIR/hadoop/bin/hadoop" version | head -1)"
+echo "  Spark: $("$INSTALL_DIR/spark/bin/spark-submit" --version 2>&1 | grep version | head -1)"
+[ -f "$INSTALL_DIR/kafka/.cluster-id" ] && echo "  Kafka: $(cat "$INSTALL_DIR/kafka/.cluster-id")"
 CHECKSCRIPT
 
     # Restart script
