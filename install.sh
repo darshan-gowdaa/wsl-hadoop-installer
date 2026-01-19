@@ -880,41 +880,25 @@ install_spark() {
         return
     fi
     
-    step_header 5 9 "Spark 3.5.8 Installation"
+    step_header 5 9 "Spark ${SPARK_VERSION} Installation"
     
     cd "$INSTALL_DIR"
     
-    # Hardcoded Spark 3.5.8
-    local SPARK_VERSION_ACTUAL="3.5.8"
-    
-    if [ ! -d "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3" ]; then
-        rm -f "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
+    if [ ! -d "spark-${SPARK_VERSION}-bin-hadoop3" ]; then
+        rm -f "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
         
-        # Direct hardcoded URL for Spark 3.5.8
-    local SPARK_URL="https://downloads.apache.org/spark/spark-3.5.8/spark-3.5.8-bin-hadoop3.tgz"
-        
-        echo -e "${BLUE}->${NC}  Downloading: spark-3.5.8-bin-hadoop3.tgz"
-        log "Using hardcoded URL: ${SPARK_URL}"
-        
-        local output="spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz"
-        
-        # Download with native wget
-        echo -e "${CYAN}Downloading from Apache servers...${NC}"
-        
-        if wget --progress=bar:force --timeout=60 --tries=2 --connect-timeout=30 -O "$output" "$SPARK_URL"; then
-            echo -e "${GREEN}[OK]${NC} Download successful!"
-        else
-            error "Failed to download Spark. Please check your internet connection."
-        fi
+        download_with_retry \
+            "https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
+            "spark-${SPARK_VERSION}-bin-hadoop3.tgz"
         
         log "Extracting Spark..."
         echo -e "${YELLOW}Screen might flicker and Desktop may reload not panic, wait...${NC}"
-        (tar -xzf "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3.tgz") &
+        (tar -xzf "spark-${SPARK_VERSION}-bin-hadoop3.tgz") &
         spinner $! "Extracting Spark archive"
     fi
     
     rm -f spark
-    ln -s "spark-${SPARK_VERSION_ACTUAL}-bin-hadoop3" spark
+    ln -s "spark-${SPARK_VERSION}-bin-hadoop3" spark
     
     # Setup Spark Env
     cp "$INSTALL_DIR/spark/conf/spark-env.sh.template" "$INSTALL_DIR/spark/conf/spark-env.sh" 2>/dev/null || touch "$INSTALL_DIR/spark/conf/spark-env.sh"
@@ -936,7 +920,7 @@ spark.history.fs.logDirectory    hdfs://localhost:9000/spark-logs
 EOF
     
     mark_done "spark_install"
-    echo -e "${GREEN}[OK] Spark 3.5.8 installed successfully${NC}"
+    echo -e "${GREEN}[OK] Spark ${SPARK_VERSION} installed successfully${NC}"
 }
 
 # Kafka Installation
