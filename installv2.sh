@@ -545,16 +545,27 @@ install_eclipse() {
 
     echo -e "\n${BOLD}[7/8] Installing Eclipse IDE for MapReduce Development${NC}"
     
-    if ! execute_with_spinner "Installing Eclipse + Maven" sudo apt-get install -y eclipse maven -qq; then
-        error "Eclipse/Maven installation failed. Check your internet connection."
-    fi
-
-    if ! command -v eclipse &>/dev/null; then
-        error "Eclipse installation failed. Try: sudo apt-get install -y eclipse"
-    fi
-
+    # Install Maven via apt
     if ! command -v mvn &>/dev/null; then
-        warn "Maven installation failed, but Eclipse is installed"
+        if ! execute_with_spinner "Installing Maven" sudo apt-get install -y maven -qq; then
+            warn "Maven installation failed, continuing..."
+        fi
+    fi
+
+    # Install Eclipse via snap
+    if ! command -v eclipse &>/dev/null; then
+        info "Installing Eclipse via snap (requires --classic mode for filesystem access)..."
+        if ! sudo snap install eclipse --classic 2>&1 | tee -a "$LOG_FILE"; then
+            error "Eclipse snap installation failed. Check your internet connection."
+        fi
+        success "Eclipse installed via snap"
+    else
+        info "Eclipse already installed"
+    fi
+
+    # Verify Eclipse is available
+    if ! command -v eclipse &>/dev/null; then
+        error "Eclipse installation failed. Try manually: sudo snap install eclipse --classic"
     fi
 
     cat >"$HOME/.local/bin/eclipse-hadoop.sh" <<'EOF'
@@ -1030,7 +1041,7 @@ main() {
         setup_environment
         success "Eclipse IDE installed"
         echo -e "Launch with: ${CYAN}eclipse-hadoop${NC}"
-        echo -e "Or run: ${CYAN}$HOME/bigdata/eclipse/eclipse-hadoop.sh${NC}"
+        echo -e "Or run: ${CYAN}$HOME/.local/bin/eclipse-hadoop.sh${NC}"
         read -p "Press Enter to continue..."
         ;;
     7)
