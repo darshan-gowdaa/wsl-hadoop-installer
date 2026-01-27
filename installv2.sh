@@ -321,6 +321,10 @@ EOF
 <?xml version="1.0"?>
 <configuration>
     <property><name>mapreduce.framework.name</name><value>yarn</value></property>
+    <property><name>yarn.app.mapreduce.am.env</name><value>HADOOP_MAPRED_HOME=$HADOOP_HOME</value></property>
+    <property><name>mapreduce.map.env</name><value>HADOOP_MAPRED_HOME=$HADOOP_HOME</value></property>
+    <property><name>mapreduce.reduce.env</name><value>HADOOP_MAPRED_HOME=$HADOOP_HOME</value></property>
+    <property><name>mapreduce.application.classpath</name><value>\$HADOOP_MAPRED_HOME/share/hadoop/mapreduce/*:\$HADOOP_MAPRED_HOME/share/hadoop/mapreduce/lib/*</value></property>
 </configuration>
 EOF
     
@@ -554,11 +558,9 @@ install_eclipse() {
 
     # Install Eclipse via snap
     if ! command -v eclipse &>/dev/null; then
-        info "Installing Eclipse via snap (requires --classic mode for filesystem access)..."
-        if ! sudo snap install eclipse --classic 2>&1 | tee -a "$LOG_FILE"; then
+        if ! execute_with_spinner "Installing Eclipse via snap" sudo snap install eclipse --classic; then
             error "Eclipse snap installation failed. Check your internet connection."
         fi
-        success "Eclipse installed via snap"
     else
         info "Eclipse already installed"
     fi
