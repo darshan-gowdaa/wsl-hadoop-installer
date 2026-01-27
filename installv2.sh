@@ -174,7 +174,7 @@ install_system_deps() {
         return
     fi
     
-    echo -e "\n${BOLD}[1/8] Installing System Dependencies${NC}"
+    echo -e "\n${BOLD}Installing System Dependencies${NC}"
     
     if ! execute_with_spinner "Updating package lists" sudo apt-get update -qq; then
         warn "Package update had warnings, continuing..."
@@ -251,7 +251,7 @@ install_hadoop() {
         return
     fi
     
-    echo -e "\n${BOLD}[2/8] Installing Hadoop ${HADOOP_VERSION}${NC}"
+    echo -e "\n${BOLD}Installing Hadoop ${HADOOP_VERSION}${NC}"
     
     mkdir -p "$INSTALL_DIR" && cd "$INSTALL_DIR"
     
@@ -340,7 +340,7 @@ install_spark() {
         return
     fi
     
-    echo -e "\n${BOLD}[3/8] Installing Spark ${SPARK_VERSION}${NC}"
+    echo -e "\n${BOLD}Installing Spark ${SPARK_VERSION}${NC}"
     
     cd "$INSTALL_DIR"
     
@@ -378,7 +378,7 @@ install_kafka() {
         return
     fi
     
-    echo -e "\n${BOLD}[4/8] Installing Kafka ${KAFKA_VERSION}${NC}"
+    echo -e "\n${BOLD}Installing Kafka ${KAFKA_VERSION}${NC}"
     
     # Verify Java 17 exists
     if [ ! -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
@@ -448,7 +448,7 @@ install_pig() {
         return
     fi
     
-    echo -e "\n${BOLD}[5/8] Installing Pig ${PIG_VERSION}${NC}"
+    echo -e "\n${BOLD}Installing Pig ${PIG_VERSION}${NC}"
     
     cd "$INSTALL_DIR"
     
@@ -488,7 +488,7 @@ install_hive() {
         return
     fi
     
-    echo -e "\n${BOLD}[6/8] Installing Hive ${HIVE_VERSION}${NC}"
+    echo -e "\n${BOLD}Installing Hive ${HIVE_VERSION}${NC}"
     
     cd "$INSTALL_DIR"
     
@@ -543,7 +543,7 @@ install_eclipse() {
         return
     fi
 
-    echo -e "\n${BOLD}[7/8] Installing Eclipse IDE for MapReduce Development${NC}"
+    echo -e "\n${BOLD}Installing Eclipse IDE for MapReduce Development${NC}"
     
     # Install Maven via apt
     if ! command -v mvn &>/dev/null; then
@@ -702,7 +702,7 @@ setup_environment() {
         return
     fi
     
-    echo -e "\n${BOLD}[7/8] Configuring Environment${NC}"
+    echo -e "\n${BOLD}Configuring Environment${NC}"
     
     if ! grep -q "HADOOP_HOME" "$HOME/.bashrc"; then
         cat >> "$HOME/.bashrc" <<'BASHRC'
@@ -732,7 +732,7 @@ create_scripts() {
         return
     fi
     
-    echo -e "\n${BOLD}[8/8] Creating Helper Scripts${NC}"
+    echo -e "\n${BOLD}Creating Helper Scripts${NC}"
     
     # Start script
     cat > "$HOME/start-hadoop.sh" <<'START'
@@ -781,7 +781,7 @@ show_menu() {
     clear
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║ Hadoop Installation for WSL github.com/darshangowdaa  ║${NC}"
-    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}\\n"
+    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}\n"
     
     echo -e "${CYAN}Installation Options:${NC}"
     echo -e "  ${BOLD}1)${NC} Hadoop Only"
@@ -1059,7 +1059,7 @@ main() {
         read -p "Press Enter to continue..."
         ;;
     0)
-        echo -e "\\n${GREEN}Goodbye!${NC}\\n"
+        echo -e "\n${GREEN}Goodbye!${NC}\n"
         exit 0
         ;;
     *)
