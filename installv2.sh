@@ -545,80 +545,45 @@ install_eclipse() {
 
     echo -e "\n${BOLD}[7/9] Installing Eclipse IDE with Hadoop support${NC}"
 
-    local snap_success=false
-    local ECLIPSE_HOME=""
-    local ECLIPSE_BIN=""
+    # Force manual installation since Snap is unreliable in WSL
+    info "Installing Eclipse (Manual Method)..."
 
-    # -------------------------------
-    # Method 1: Snap (fastest)
-    # -------------------------------
-    info "Checking snap availability..."
+    mkdir -p "$INSTALL_DIR"
+    cd "$INSTALL_DIR" || error "Cannot access $INSTALL_DIR"
 
-    if ! command -v snapctl &>/dev/null; then
-        info "Installing snapd..."
-        if sudo apt-get update -qq && sudo apt-get install -y snapd -qq; then
-            sudo ln -sf /var/lib/snapd/snap /snap 2>/dev/null || true
-            success "snapd installed"
-        else
-            warn "snapd installation failed"
-        fi
-    fi
+    local ECLIPSE_VERSION="2024-12"
+    local ECLIPSE_TAR="eclipse-java-${ECLIPSE_VERSION}-R-linux-gtk-x86_64.tar.gz"
 
-    if command -v snapctl &>/dev/null; then
-        info "Installing Eclipse via snap..."
-        if sudo snap install eclipse --classic >>"$LOG_FILE" 2>&1; then
-            sleep 3
-            if [ -x /snap/bin/eclipse ]; then
-                snap_success=true
-                ECLIPSE_HOME="/snap/eclipse/current"
-                ECLIPSE_BIN="/snap/bin/eclipse"
-                sudo ln -sf "$ECLIPSE_BIN" /usr/local/bin/eclipse 2>/dev/null || true
-                success "Eclipse installed via snap"
-            fi
-        fi
-    fi
+    if [ ! -d eclipse ]; then
+        info "Downloading Eclipse IDE..."
 
-    # -------------------------------
-    # Method 2: Manual (recommended)
-    # -------------------------------
-    if [ "$snap_success" = false ]; then
-        info "Using manual Eclipse installation..."
+        local mirrors=(
+            "https://archive.eclipse.org/technology/epp/downloads/release/${ECLIPSE_VERSION}/R/${ECLIPSE_TAR}"
+            "https://ftp.osuosl.org/pub/eclipse/technology/epp/downloads/release/${ECLIPSE_VERSION}/R/${ECLIPSE_TAR}"
+        )
 
-        cd "$INSTALL_DIR" || error "Cannot access $INSTALL_DIR"
-
-        local ECLIPSE_VERSION="2024-12"
-        local ECLIPSE_TAR="eclipse-java-${ECLIPSE_VERSION}-R-linux-gtk-x86_64.tar.gz"
-
-        if [ ! -d eclipse ]; then
-            info "Downloading Eclipse IDE..."
-
-            local mirrors=(
-                "https://archive.eclipse.org/technology/epp/downloads/release/${ECLIPSE_VERSION}/R/${ECLIPSE_TAR}"
-                "https://ftp.osuosl.org/pub/eclipse/technology/epp/downloads/release/${ECLIPSE_VERSION}/R/${ECLIPSE_TAR}"
-            )
-
-            local ok=false
-            for url in "${mirrors[@]}"; do
-                if wget -O eclipse.tar.gz --timeout=120 "$url"; then
-                    if [ "$(stat -c%s eclipse.tar.gz)" -gt 60000000 ]; then
-                        ok=true
-                        break
-                    fi
+        local ok=false
+        for url in "${mirrors[@]}"; do
+            if wget -O eclipse.tar.gz --timeout=120 "$url"; then
+                if [ "$(stat -c%s eclipse.tar.gz)" -gt 60000000 ]; then
+                    ok=true
+                    break
                 fi
-            done
+            fi
+        done
 
-            [ "$ok" = false ] && error "Eclipse download failed"
+        [ "$ok" = false ] && error "Eclipse download failed"
 
-            tar -xzf eclipse.tar.gz || error "Extraction failed"
-            rm -f eclipse.tar.gz
-        fi
+        tar -xzf eclipse.tar.gz || error "Extraction failed"
+        rm -f eclipse.tar.gz
+    fi
 
-        ECLIPSE_HOME="$INSTALL_DIR/eclipse"
-        ECLIPSE_BIN="$ECLIPSE_HOME/eclipse"
-        sudo ln -sf "$ECLIPSE_BIN" /usr/local/bin/eclipse 2>/dev/null || true
-
-        mkdir -p "$HOME/.local/share/applications"
-        cat >"$HOME/.local/share/applications/eclipse.desktop" <<EOF
+    ECLIPSE_HOME="$INSTALL_DIR/eclipse"
+    ECLIPSE_BIN="$ECLIPSE_HOME/eclipse"
+    
+    # Create desktop entry just in case
+    mkdir -p "$HOME/.local/share/applications"
+    cat >"$HOME/.local/share/applications/eclipse.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Eclipse IDE
@@ -628,40 +593,34 @@ Terminal=false
 Categories=Development;IDE;Java;
 EOF
 
-        success "Manual Eclipse installation completed"
-    fi
-
     # -------------------------------
     # Hadoop Eclipse Plugin
     # -------------------------------
     info "Configuring Hadoop Eclipse Plugin..."
+    
+    local PLUGIN_DIR="$ECLIPSE_HOME/plugins"
+    mkdir -p "$PLUGIN_DIR"
 
-    if [ "$snap_success" = true ]; then
-        warn "Snap Eclipse does NOT support classic Hadoop plugins"
-        warn "Use manual Eclipse for Hadoop plugin support"
-    else
-        local PLUGIN_DIR="$ECLIPSE_HOME/plugins"
-        mkdir -p "$PLUGIN_DIR"
-
-        if [ ! -f "$PLUGIN_DIR/hadoop-eclipse-plugin-3.3.6.jar" ]; then
-            wget -O "$PLUGIN_DIR/hadoop-eclipse-plugin-3.3.6.jar" \
-                "https://raw.githubusercontent.com/winghc/hadoop2x-eclipse-plugin/master/release/hadoop-eclipse-plugin-3.3.6.jar" \
-                || warn "Hadoop plugin download failed"
-        fi
+    if [ ! -f "$PLUGIN_DIR/hadoop-eclipse-plugin-3.3.6.jar" ]; then
+        wget -O "$PLUGIN_DIR/hadoop-eclipse-plugin-3.3.6.jar" \
+            "https://raw.githubusercontent.com/winghc/hadoop2x-eclipse-plugin/master/release/hadoop-eclipse-plugin-3.3.6.jar" \
+            || warn "Hadoop plugin download failed"
     fi
 
     # -------------------------------
     # Eclipse Hadoop launcher
     # -------------------------------
-    cat >"$HOME/eclipse-hadoop.sh" <<'EOF'
+    # Create launcher in Eclipse directory
+    cat >"$ECLIPSE_HOME/eclipse-hadoop.sh" <<'EOF'
 #!/bin/bash
 
 export HADOOP_HOME=$HOME/bigdata/hadoop
-export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+export java_home=/usr/lib/jvm/java-11-openjdk-amd64
 export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$PATH
 
 echo "Preparing Hadoop environment..."
 
+# Start services if needed
 pgrep -f NameNode >/dev/null || {
     sudo service ssh start >/dev/null 2>&1
     $HADOOP_HOME/sbin/start-dfs.sh >/dev/null 2>&1
@@ -669,16 +628,22 @@ pgrep -f NameNode >/dev/null || {
     $HADOOP_HOME/sbin/start-yarn.sh >/dev/null 2>&1
 }
 
+# Wait for Safe Mode
 $HADOOP_HOME/bin/hdfs dfsadmin -safemode wait >/dev/null 2>&1
 $HADOOP_HOME/bin/hdfs dfsadmin -safemode leave >/dev/null 2>&1
 
+# Create User Directories
 $HADOOP_HOME/bin/hdfs dfs -mkdir -p /user/$USER /tmp >/dev/null 2>&1
 $HADOOP_HOME/bin/hdfs dfs -chmod 777 /tmp >/dev/null 2>&1
 
-exec eclipse
+# Launch Eclipse
+exec ./eclipse
 EOF
 
-    chmod +x "$HOME/eclipse-hadoop.sh"
+    chmod +x "$ECLIPSE_HOME/eclipse-hadoop.sh"
+    
+    # Create global symlink
+    sudo ln -sf "$ECLIPSE_HOME/eclipse-hadoop.sh" /usr/local/bin/eclipse-hadoop
 
     # -------------------------------
     # Sample project creator
@@ -700,10 +665,8 @@ EOF
     chmod +x "$HOME/create-mapreduce-project.sh"
 
     mark_done "eclipse_full"
-    success "Eclipse + Hadoop environment ready"
-
-    echo "Launch: $HOME/eclipse-hadoop.sh"
-    echo "Create project: $HOME/create-mapreduce-project.sh"
+    success "Eclipse installing (Manual) completed"
+    echo "Launch with: eclipse-hadoop"
 }
 
 setup_environment() {
