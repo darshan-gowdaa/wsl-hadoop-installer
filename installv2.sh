@@ -543,130 +543,165 @@ install_eclipse() {
         return
     fi
 
-    echo -e "\n${BOLD}[7/9] Installing Eclipse IDE with Hadoop support${NC}"
+    echo -e "\n${BOLD}[7/8] Installing Eclipse IDE for MapReduce Development${NC}"
 
-    # Force manual installation since Snap is unreliable in WSL
-    info "Installing Eclipse (Manual Method)..."
-
-    mkdir -p "$INSTALL_DIR"
-    cd "$INSTALL_DIR" || error "Cannot access $INSTALL_DIR"
-
-    local ECLIPSE_VERSION="2024-12"
-    local ECLIPSE_TAR="eclipse-java-${ECLIPSE_VERSION}-R-linux-gtk-x86_64.tar.gz"
-
-    if [ ! -d eclipse ]; then
-        info "Downloading Eclipse IDE..."
-
-        local mirrors=(
-            "https://archive.eclipse.org/technology/epp/downloads/release/${ECLIPSE_VERSION}/R/${ECLIPSE_TAR}"
-            "https://ftp.osuosl.org/pub/eclipse/technology/epp/downloads/release/${ECLIPSE_VERSION}/R/${ECLIPSE_TAR}"
-        )
-
-        local ok=false
-        for url in "${mirrors[@]}"; do
-            if wget -O eclipse.tar.gz --timeout=120 "$url"; then
-                if [ "$(stat -c%s eclipse.tar.gz)" -gt 60000000 ]; then
-                    ok=true
-                    break
-                fi
-            fi
-        done
-
-        [ "$ok" = false ] && error "Eclipse download failed"
-
-        tar -xzf eclipse.tar.gz || error "Extraction failed"
-        rm -f eclipse.tar.gz
+    # Install Eclipse and Maven via apt (simple and reliable)
+    info "Installing Eclipse and Maven via apt..."
+    
+    if ! execute_with_spinner "Installing Eclipse + Maven" sudo apt-get install -y eclipse maven -qq; then
+        error "Eclipse/Maven installation failed. Check your internet connection."
     fi
 
-    ECLIPSE_HOME="$INSTALL_DIR/eclipse"
-    ECLIPSE_BIN="$ECLIPSE_HOME/eclipse"
-    
-    # Create desktop entry just in case
-    mkdir -p "$HOME/.local/share/applications"
-    cat >"$HOME/.local/share/applications/eclipse.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=Eclipse IDE
-Exec=$ECLIPSE_BIN
-Icon=$ECLIPSE_HOME/icon.xpm
-Terminal=false
-Categories=Development;IDE;Java;
-EOF
+    # Verify installation
+    if ! command -v eclipse &>/dev/null; then
+        error "Eclipse installation failed. Try: sudo apt-get install -y eclipse"
+    fi
 
-    # -------------------------------
-    # Hadoop Eclipse Plugin
-    # -------------------------------
-    info "Configuring Hadoop Eclipse Plugin..."
-    
-    local PLUGIN_DIR="$ECLIPSE_HOME/plugins"
-    mkdir -p "$PLUGIN_DIR"
-
-    if [ ! -f "$PLUGIN_DIR/hadoop-eclipse-plugin-3.3.6.jar" ]; then
-        wget -O "$PLUGIN_DIR/hadoop-eclipse-plugin-3.3.6.jar" \
-            "https://raw.githubusercontent.com/winghc/hadoop2x-eclipse-plugin/master/release/hadoop-eclipse-plugin-3.3.6.jar" \
-            || warn "Hadoop plugin download failed"
+    if ! command -v mvn &>/dev/null; then
+        warn "Maven installation failed, but Eclipse is installed"
     fi
 
     # -------------------------------
     # Eclipse Hadoop launcher
     # -------------------------------
-    # Create launcher in Eclipse directory
-    cat >"$ECLIPSE_HOME/eclipse-hadoop.sh" <<'EOF'
+    info "Creating Hadoop-integrated Eclipse launcher..."
+    
+    # Create launcher script for Eclipse with Hadoop environment
+    cat >"$HOME/.local/bin/eclipse-hadoop.sh" <<'EOF'
 #!/bin/bash
 
 export HADOOP_HOME=$HOME/bigdata/hadoop
-export java_home=/usr/lib/jvm/java-11-openjdk-amd64
+export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
 export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$PATH
 
-echo "Preparing Hadoop environment..."
+echo "Preparing Hadoop environment for Eclipse..."
 
-# Start services if needed
-pgrep -f NameNode >/dev/null || {
-    sudo service ssh start >/dev/null 2>&1
-    $HADOOP_HOME/sbin/start-dfs.sh >/dev/null 2>&1
+# Start Hadoop services if not running
+if ! pgrep -f NameNode > /dev/null; then
+    echo "Starting Hadoop services..."
+    sudo service ssh start > /dev/null 2>&1
+    $HADOOP_HOME/sbin/start-dfs.sh > /dev/null 2>&1
     sleep 5
-    $HADOOP_HOME/sbin/start-yarn.sh >/dev/null 2>&1
-}
+    $HADOOP_HOME/sbin/start-yarn.sh > /dev/null 2>&1
+    echo "Hadoop services started"
+fi
 
-# Wait for Safe Mode
-$HADOOP_HOME/bin/hdfs dfsadmin -safemode wait >/dev/null 2>&1
-$HADOOP_HOME/bin/hdfs dfsadmin -safemode leave >/dev/null 2>&1
+# Wait for HDFS to exit safe mode
+echo "Waiting for HDFS..."
+$HADOOP_HOME/bin/hdfs dfsadmin -safemode wait > /dev/null 2>&1
+$HADOOP_HOME/bin/hdfs dfsadmin -safemode leave > /dev/null 2>&1
 
-# Create User Directories
-$HADOOP_HOME/bin/hdfs dfs -mkdir -p /user/$USER /tmp >/dev/null 2>&1
-$HADOOP_HOME/bin/hdfs dfs -chmod 777 /tmp >/dev/null 2>&1
+# Create user directories in HDFS
+$HADOOP_HOME/bin/hdfs dfs -mkdir -p /user/$USER /tmp > /dev/null 2>&1
+$HADOOP_HOME/bin/hdfs dfs -chmod 777 /tmp > /dev/null 2>&1
 
-# Launch Eclipse
-exec ./eclipse
+echo "Environment ready. Launching Eclipse..."
+echo ""
+
+# Launch Eclipse (WSLg will handle GUI on Windows 11)
+exec eclipse
 EOF
 
-    chmod +x "$ECLIPSE_HOME/eclipse-hadoop.sh"
+    mkdir -p "$HOME/.local/bin"
+    chmod +x "$HOME/.local/bin/eclipse-hadoop.sh"
     
-    # Create global symlink
-    sudo ln -sf "$ECLIPSE_HOME/eclipse-hadoop.sh" /usr/local/bin/eclipse-hadoop
+    # Create global symlink for easy access
+    sudo ln -sf "$HOME/.local/bin/eclipse-hadoop.sh" /usr/local/bin/eclipse-hadoop
 
     # -------------------------------
-    # Sample project creator
+    # User guide for MapReduce projects
     # -------------------------------
-    cat >"$HOME/create-mapreduce-project.sh" <<'EOF'
-#!/bin/bash
-NAME="${1:-WordCount}"
-BASE="$HOME/EclipseProjects/$NAME"
+    cat >"$HOME/ECLIPSE_MAPREDUCE_GUIDE.txt" <<'GUIDE'
+=================================================================
+  Eclipse MapReduce Development Guide (No Plugins Required)
+=================================================================
 
-mkdir -p "$BASE/src" "$BASE/lib" "$BASE/bin"
+QUICK START:
+------------
+1. Launch Eclipse with Hadoop environment:
+   $ eclipse-hadoop
+   
+   (Or just: eclipse &)
 
-cp $HOME/bigdata/hadoop/share/hadoop/common/*.jar "$BASE/lib/" 2>/dev/null
-cp $HOME/bigdata/hadoop/share/hadoop/common/lib/*.jar "$BASE/lib/" 2>/dev/null
-cp $HOME/bigdata/hadoop/share/hadoop/mapreduce/*.jar "$BASE/lib/" 2>/dev/null
+2. Create New Java Project:
+   File → New → Java Project
+   - Project name: WordCount
+   - JRE: Select "JavaSE-11"
+   - Click "Finish"
 
-echo "Project created at $BASE"
-EOF
+3. Add Hadoop Dependencies (Choose ONE method):
 
-    chmod +x "$HOME/create-mapreduce-project.sh"
+   METHOD A: Using Maven (RECOMMENDED - Easier)
+   ---------------------------------------------
+   Right-click project → Configure → Convert to Maven Project
+   
+   Open pom.xml and add inside <project>:
+   
+   <dependencies>
+       <dependency>
+           <groupId>org.apache.hadoop</groupId>
+           <artifactId>hadoop-client</artifactId>
+           <version>3.4.2</version>
+       </dependency>
+   </dependencies>
+   
+   Save → Right-click project → Maven → Update Project
+   
+   METHOD B: Manual JARs (Alternative)
+   ------------------------------------
+   Right-click project → Build Path → Configure Build Path
+   → Libraries → Add External JARs
+   
+   Add ALL JARs from:
+   ~/bigdata/hadoop-3.4.2/share/hadoop/common/*.jar
+   ~/bigdata/hadoop-3.4.2/share/hadoop/mapreduce/*.jar
+   ~/bigdata/hadoop-3.4.2/share/hadoop/hdfs/*.jar
+   ~/bigdata/hadoop-3.4.2/share/hadoop/yarn/*.jar
+   
+   Click "Apply and Close"
 
+4. Write Your MapReduce Code:
+   Create: src/wordcount/WordCount.java
+   (Use standard MapReduce template)
+
+5. Export JAR:
+   Right-click project → Export → Java → Runnable JAR File
+   - Launch configuration: Choose "WordCount"
+   - Export destination: /home/$USER/wordcount.jar
+   - Library handling: "Extract required libraries into generated JAR"
+   - Click "Finish"
+
+6. Run on Hadoop:
+   $ hdfs dfs -mkdir -p /input
+   $ hdfs dfs -put input.txt /input/
+   $ hadoop jar ~/wordcount.jar wordcount.WordCount /input /output
+   $ hdfs dfs -cat /output/part-r-00000
+
+IMPORTANT NOTES:
+----------------
+✓ Maven method is cleaner and manages dependencies automatically
+✓ NO Hadoop Eclipse plugins needed - plugins are outdated/buggy
+✓ This is the exam-safe, production-standard method
+✓ Export as "Runnable JAR" includes all dependencies
+✓ Use "hadoop jar" command to run (not java -jar)
+✓ Package name in command must match Java code
+
+TROUBLESHOOTING:
+----------------
+• ClassNotFoundException: Check package name in command
+• JAR runs locally but not on Hadoop: Re-export with dependencies
+• GUI doesn't open: Ensure WSLg is working (Windows 11 required)
+• Maven not found: Restart Eclipse after installation
+
+=================================================================
+GUIDE
+
+    success "Eclipse and Maven installed successfully"
+    echo ""
+    info "Launch Eclipse with: eclipse-hadoop"
+    info "Quick guide: cat ~/ECLIPSE_MAPREDUCE_GUIDE.txt"
+    
     mark_done "eclipse_full"
-    success "Eclipse installing (Manual) completed"
-    echo "Launch with: eclipse-hadoop"
 }
 
 setup_environment() {
@@ -686,12 +721,8 @@ export SPARK_HOME=$HOME/bigdata/spark
 export KAFKA_HOME=$HOME/bigdata/kafka
 export PIG_HOME=$HOME/bigdata/pig
 export HIVE_HOME=$HOME/bigdata/hive
-export ECLIPSE_HOME=$HOME/bigdata/eclipse
 export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
-export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$PIG_HOME/bin:$HIVE_HOME/bin:$ECLIPSE_HOME:$PATH
-
-# Eclipse Hadoop launcher
-alias eclipse-hadoop='$HOME/bigdata/eclipse/eclipse-hadoop.sh'
+export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$PIG_HOME/bin:$HIVE_HOME/bin:$PATH
 
 # Kafka wrapper (Java 17)
 kafka-server-start() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-server-start.sh "$@"; }
