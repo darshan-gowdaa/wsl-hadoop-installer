@@ -544,15 +544,11 @@ install_eclipse() {
     fi
 
     echo -e "\n${BOLD}[7/8] Installing Eclipse IDE for MapReduce Development${NC}"
-
-    # Install Eclipse and Maven via apt (simple and reliable)
-    info "Installing Eclipse and Maven via apt..."
     
     if ! execute_with_spinner "Installing Eclipse + Maven" sudo apt-get install -y eclipse maven -qq; then
         error "Eclipse/Maven installation failed. Check your internet connection."
     fi
 
-    # Verify installation
     if ! command -v eclipse &>/dev/null; then
         error "Eclipse installation failed. Try: sudo apt-get install -y eclipse"
     fi
@@ -561,12 +557,6 @@ install_eclipse() {
         warn "Maven installation failed, but Eclipse is installed"
     fi
 
-    # -------------------------------
-    # Eclipse Hadoop launcher
-    # -------------------------------
-    info "Creating Hadoop-integrated Eclipse launcher..."
-    
-    # Create launcher script for Eclipse with Hadoop environment
     cat >"$HOME/.local/bin/eclipse-hadoop.sh" <<'EOF'
 #!/bin/bash
 
@@ -576,7 +566,6 @@ export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$PATH
 
 echo "Preparing Hadoop environment for Eclipse..."
 
-# Start Hadoop services if not running
 if ! pgrep -f NameNode > /dev/null; then
     echo "Starting Hadoop services..."
     sudo service ssh start > /dev/null 2>&1
@@ -586,31 +575,23 @@ if ! pgrep -f NameNode > /dev/null; then
     echo "Hadoop services started"
 fi
 
-# Wait for HDFS to exit safe mode
 echo "Waiting for HDFS..."
 $HADOOP_HOME/bin/hdfs dfsadmin -safemode wait > /dev/null 2>&1
 $HADOOP_HOME/bin/hdfs dfsadmin -safemode leave > /dev/null 2>&1
 
-# Create user directories in HDFS
 $HADOOP_HOME/bin/hdfs dfs -mkdir -p /user/$USER /tmp > /dev/null 2>&1
 $HADOOP_HOME/bin/hdfs dfs -chmod 777 /tmp > /dev/null 2>&1
 
 echo "Environment ready. Launching Eclipse..."
 echo ""
 
-# Launch Eclipse (WSLg will handle GUI on Windows 11)
 exec eclipse
 EOF
 
     mkdir -p "$HOME/.local/bin"
     chmod +x "$HOME/.local/bin/eclipse-hadoop.sh"
-    
-    # Create global symlink for easy access
     sudo ln -sf "$HOME/.local/bin/eclipse-hadoop.sh" /usr/local/bin/eclipse-hadoop
 
-    # -------------------------------
-    # User guide for MapReduce projects
-    # -------------------------------
     cat >"$HOME/ECLIPSE_MAPREDUCE_GUIDE.txt" <<'GUIDE'
 =================================================================
   Eclipse MapReduce Development Guide (No Plugins Required)
@@ -631,7 +612,7 @@ QUICK START:
 
 3. Add Hadoop Dependencies (Choose ONE method):
 
-   METHOD A: Using Maven (RECOMMENDED - Easier)
+   METHOD A: Using Maven (Easier!, but not recommended by the teacher)
    ---------------------------------------------
    Right-click project → Configure → Convert to Maven Project
    
@@ -647,7 +628,7 @@ QUICK START:
    
    Save → Right-click project → Maven → Update Project
    
-   METHOD B: Manual JARs (Alternative)
+   METHOD B: Manual JARs (Followed by the TEACHER)
    ------------------------------------
    Right-click project → Build Path → Configure Build Path
    → Libraries → Add External JARs
@@ -697,9 +678,7 @@ TROUBLESHOOTING:
 GUIDE
 
     success "Eclipse and Maven installed successfully"
-    echo ""
-    info "Launch Eclipse with: eclipse-hadoop"
-    info "Quick guide: cat ~/ECLIPSE_MAPREDUCE_GUIDE.txt"
+    info "Launch: eclipse-hadoop | Guide: cat ~/ECLIPSE_MAPREDUCE_GUIDE.txt"
     
     mark_done "eclipse_full"
 }
