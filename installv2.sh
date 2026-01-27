@@ -537,6 +537,175 @@ EOF
     success "Hive installed and configured"
 }
 
+install_eclipse() {
+    if is_done "eclipse_full"; then
+        info "Eclipse already installed"
+        return
+    fi
+
+    echo -e "\n${BOLD}[7/9] Installing Eclipse IDE with Hadoop support${NC}"
+
+    local snap_success=false
+    local ECLIPSE_HOME=""
+    local ECLIPSE_BIN=""
+
+    # -------------------------------
+    # Method 1: Snap (fastest)
+    # -------------------------------
+    info "Checking snap availability..."
+
+    if ! command -v snapctl &>/dev/null; then
+        info "Installing snapd..."
+        if sudo apt-get update -qq && sudo apt-get install -y snapd -qq; then
+            sudo ln -sf /var/lib/snapd/snap /snap 2>/dev/null || true
+            success "snapd installed"
+        else
+            warn "snapd installation failed"
+        fi
+    fi
+
+    if command -v snapctl &>/dev/null; then
+        info "Installing Eclipse via snap..."
+        if sudo snap install eclipse --classic >>"$LOG_FILE" 2>&1; then
+            sleep 3
+            if [ -x /snap/bin/eclipse ]; then
+                snap_success=true
+                ECLIPSE_HOME="/snap/eclipse/current"
+                ECLIPSE_BIN="/snap/bin/eclipse"
+                sudo ln -sf "$ECLIPSE_BIN" /usr/local/bin/eclipse 2>/dev/null || true
+                success "Eclipse installed via snap"
+            fi
+        fi
+    fi
+
+    # -------------------------------
+    # Method 2: Manual (recommended)
+    # -------------------------------
+    if [ "$snap_success" = false ]; then
+        info "Using manual Eclipse installation..."
+
+        cd "$INSTALL_DIR" || error "Cannot access $INSTALL_DIR"
+
+        local ECLIPSE_VERSION="2024-12"
+        local ECLIPSE_TAR="eclipse-java-${ECLIPSE_VERSION}-R-linux-gtk-x86_64.tar.gz"
+
+        if [ ! -d eclipse ]; then
+            info "Downloading Eclipse IDE..."
+
+            local mirrors=(
+                "https://archive.eclipse.org/technology/epp/downloads/release/${ECLIPSE_VERSION}/R/${ECLIPSE_TAR}"
+                "https://ftp.osuosl.org/pub/eclipse/technology/epp/downloads/release/${ECLIPSE_VERSION}/R/${ECLIPSE_TAR}"
+            )
+
+            local ok=false
+            for url in "${mirrors[@]}"; do
+                if wget -O eclipse.tar.gz --timeout=120 "$url"; then
+                    if [ "$(stat -c%s eclipse.tar.gz)" -gt 60000000 ]; then
+                        ok=true
+                        break
+                    fi
+                fi
+            done
+
+            [ "$ok" = false ] && error "Eclipse download failed"
+
+            tar -xzf eclipse.tar.gz || error "Extraction failed"
+            rm -f eclipse.tar.gz
+        fi
+
+        ECLIPSE_HOME="$INSTALL_DIR/eclipse"
+        ECLIPSE_BIN="$ECLIPSE_HOME/eclipse"
+        sudo ln -sf "$ECLIPSE_BIN" /usr/local/bin/eclipse 2>/dev/null || true
+
+        mkdir -p "$HOME/.local/share/applications"
+        cat >"$HOME/.local/share/applications/eclipse.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Eclipse IDE
+Exec=$ECLIPSE_BIN
+Icon=$ECLIPSE_HOME/icon.xpm
+Terminal=false
+Categories=Development;IDE;Java;
+EOF
+
+        success "Manual Eclipse installation completed"
+    fi
+
+    # -------------------------------
+    # Hadoop Eclipse Plugin
+    # -------------------------------
+    info "Configuring Hadoop Eclipse Plugin..."
+
+    if [ "$snap_success" = true ]; then
+        warn "Snap Eclipse does NOT support classic Hadoop plugins"
+        warn "Use manual Eclipse for Hadoop plugin support"
+    else
+        local PLUGIN_DIR="$ECLIPSE_HOME/plugins"
+        mkdir -p "$PLUGIN_DIR"
+
+        if [ ! -f "$PLUGIN_DIR/hadoop-eclipse-plugin-3.3.6.jar" ]; then
+            wget -O "$PLUGIN_DIR/hadoop-eclipse-plugin-3.3.6.jar" \
+                "https://raw.githubusercontent.com/winghc/hadoop2x-eclipse-plugin/master/release/hadoop-eclipse-plugin-3.3.6.jar" \
+                || warn "Hadoop plugin download failed"
+        fi
+    fi
+
+    # -------------------------------
+    # Eclipse Hadoop launcher
+    # -------------------------------
+    cat >"$HOME/eclipse-hadoop.sh" <<'EOF'
+#!/bin/bash
+
+export HADOOP_HOME=$HOME/bigdata/hadoop
+export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$PATH
+
+echo "Preparing Hadoop environment..."
+
+pgrep -f NameNode >/dev/null || {
+    sudo service ssh start >/dev/null 2>&1
+    $HADOOP_HOME/sbin/start-dfs.sh >/dev/null 2>&1
+    sleep 5
+    $HADOOP_HOME/sbin/start-yarn.sh >/dev/null 2>&1
+}
+
+$HADOOP_HOME/bin/hdfs dfsadmin -safemode wait >/dev/null 2>&1
+$HADOOP_HOME/bin/hdfs dfsadmin -safemode leave >/dev/null 2>&1
+
+$HADOOP_HOME/bin/hdfs dfs -mkdir -p /user/$USER /tmp >/dev/null 2>&1
+$HADOOP_HOME/bin/hdfs dfs -chmod 777 /tmp >/dev/null 2>&1
+
+exec eclipse
+EOF
+
+    chmod +x "$HOME/eclipse-hadoop.sh"
+
+    # -------------------------------
+    # Sample project creator
+    # -------------------------------
+    cat >"$HOME/create-mapreduce-project.sh" <<'EOF'
+#!/bin/bash
+NAME="${1:-WordCount}"
+BASE="$HOME/EclipseProjects/$NAME"
+
+mkdir -p "$BASE/src" "$BASE/lib" "$BASE/bin"
+
+cp $HOME/bigdata/hadoop/share/hadoop/common/*.jar "$BASE/lib/" 2>/dev/null
+cp $HOME/bigdata/hadoop/share/hadoop/common/lib/*.jar "$BASE/lib/" 2>/dev/null
+cp $HOME/bigdata/hadoop/share/hadoop/mapreduce/*.jar "$BASE/lib/" 2>/dev/null
+
+echo "Project created at $BASE"
+EOF
+
+    chmod +x "$HOME/create-mapreduce-project.sh"
+
+    mark_done "eclipse_full"
+    success "Eclipse + Hadoop environment ready"
+
+    echo "Launch: $HOME/eclipse-hadoop.sh"
+    echo "Create project: $HOME/create-mapreduce-project.sh"
+}
+
 setup_environment() {
     if is_done "env_setup"; then
         info "Environment already configured"
@@ -554,8 +723,12 @@ export SPARK_HOME=$HOME/bigdata/spark
 export KAFKA_HOME=$HOME/bigdata/kafka
 export PIG_HOME=$HOME/bigdata/pig
 export HIVE_HOME=$HOME/bigdata/hive
+export ECLIPSE_HOME=$HOME/bigdata/eclipse
 export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
-export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$PIG_HOME/bin:$HIVE_HOME/bin:$PATH
+export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$PIG_HOME/bin:$HIVE_HOME/bin:$ECLIPSE_HOME:$PATH
+
+# Eclipse Hadoop launcher
+alias eclipse-hadoop='$HOME/bigdata/eclipse/eclipse-hadoop.sh'
 
 # Kafka wrapper (Java 17)
 kafka-server-start() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-server-start.sh "$@"; }
@@ -622,15 +795,15 @@ show_menu() {
     clear
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║ Hadoop Installation for WSL github.com/darshangowdaa  ║${NC}"
-    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}\n"
+    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}\\n"
     
     echo -e "${CYAN}Installation Options:${NC}"
-    echo -e "  ${BOLD}1)${NC} Full Installation (All Components) [Beta Version, may not work]"
-    echo -e "  ${BOLD}2)${NC} Hadoop Only"
-    echo -e "  ${BOLD}3)${NC} Spark Only"
-    echo -e "  ${BOLD}4)${NC} Kafka Only"
-    echo -e "  ${BOLD}5)${NC} Pig Only [Beta Verison, may not work]"
-    echo -e "  ${BOLD}6)${NC} Hive Only [Beta Verison, may not work]"
+    echo -e "  ${BOLD}1)${NC} Hadoop Only"
+    echo -e "  ${BOLD}2)${NC} Spark Only"
+    echo -e "  ${BOLD}3)${NC} Kafka Only"
+    echo -e "  ${BOLD}4)${NC} Pig Only [Beta Version]"
+    echo -e "  ${BOLD}5)${NC} Hive Only [Beta Version]"
+    echo -e "  ${BOLD}6)${NC} Eclipse IDE with Hadoop Plugin"
     echo ""
     echo -e "${CYAN}Management:${NC}"
     echo -e "  ${BOLD}7)${NC} Start All Services"
@@ -832,84 +1005,82 @@ main() {
         read -p "Select option: " choice
         
         case $choice in
-            1)
-                install_system_deps
-                install_hadoop
-                install_spark
-                install_kafka
-                install_pig
-                install_hive
-                setup_environment
-                create_scripts
-                echo -e "\n${GREEN}✓ Full installation complete!${NC}"
-                echo -e "Run: ${CYAN}source ~/.bashrc${NC} and ${CYAN}~/start-hadoop.sh${NC}"
-                read -p "Press Enter to continue..."
-                ;;
-            2)
-                install_system_deps
-                install_hadoop
-                setup_environment
-                create_scripts
-                success "Hadoop installed"
-                echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
-                read -p "Press Enter to continue..."
-                ;;
-            3)
-                install_system_deps
-                install_hadoop
-                install_spark
-                setup_environment
-                success "Spark installed"
-                echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
-                read -p "Press Enter to continue..."
-                ;;
-            4)
-                install_system_deps
-                install_kafka
-                setup_environment
-                success "Kafka installed"
-                echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
-                read -p "Press Enter to continue..."
-                ;;
-            5)
-                install_system_deps
-                install_hadoop
-                install_pig
-                setup_environment
-                success "Pig installed"
-                echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
-                read -p "Press Enter to continue..."
-                ;;
-            6)
-                install_system_deps
-                install_hadoop
-                install_hive
-                setup_environment
-                success "Hive installed"
-                echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
-                read -p "Press Enter to continue..."
-                ;;
-            7)
-                start_services
-                read -p "Press Enter to continue..."
-                ;;
-            8)
-                stop_services
-                read -p "Press Enter to continue..."
-                ;;
-            9)
-                check_status
-                read -p "Press Enter to continue..."
-                ;;
-            0)
-                echo -e "\n${GREEN}Goodbye!${NC}\n"
-                exit 0
-                ;;
-            *)
-                echo -e "${RED}Invalid option. Please select 0-9.${NC}"
-                sleep 2
-                ;;
-        esac
+
+    1)
+        install_system_deps
+        install_hadoop
+        setup_environment
+        create_scripts
+        success "Hadoop installed"
+        echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
+        read -p "Press Enter to continue..."
+        ;;
+    2)
+        install_system_deps
+        install_hadoop
+        install_spark
+        setup_environment
+        success "Spark installed"
+        echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
+        read -p "Press Enter to continue..."
+        ;;
+    3)
+        install_system_deps
+        install_kafka
+        setup_environment
+        success "Kafka installed"
+        echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
+        read -p "Press Enter to continue..."
+        ;;
+    4)
+        install_system_deps
+        install_hadoop
+        install_pig
+        setup_environment
+        success "Pig installed"
+        echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
+        read -p "Press Enter to continue..."
+        ;;
+    5)
+        install_system_deps
+        install_hadoop
+        install_hive
+        setup_environment
+        success "Hive installed"
+        echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
+        read -p "Press Enter to continue..."
+        ;;
+    6)
+        install_system_deps
+        install_hadoop
+        install_eclipse
+        setup_environment
+        success "Eclipse IDE installed"
+        echo -e "Launch with: ${CYAN}eclipse-hadoop${NC}"
+        echo -e "Or run: ${CYAN}$HOME/bigdata/eclipse/eclipse-hadoop.sh${NC}"
+        read -p "Press Enter to continue..."
+        ;;
+    7)
+        start_services
+        read -p "Press Enter to continue..."
+        ;;
+    8)
+        stop_services
+        read -p "Press Enter to continue..."
+        ;;
+    9)
+        check_status
+        read -p "Press Enter to continue..."
+        ;;
+    0)
+        echo -e "\\n${GREEN}Goodbye!${NC}\\n"
+        exit 0
+        ;;
+    *)
+        echo -e "${RED}Invalid option. Please select 0-9.${NC}"
+        sleep 2
+        ;;
+esac
     done
 }
 
