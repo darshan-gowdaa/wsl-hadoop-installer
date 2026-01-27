@@ -568,6 +568,9 @@ install_eclipse() {
         error "Eclipse installation failed. Try manually: sudo snap install eclipse --classic"
     fi
 
+    # Create directory before writing script
+    mkdir -p "$HOME/.local/bin"
+
     cat >"$HOME/.local/bin/eclipse-hadoop.sh" <<'EOF'
 #!/bin/bash
 
@@ -599,7 +602,6 @@ echo ""
 exec eclipse
 EOF
 
-    mkdir -p "$HOME/.local/bin"
     chmod +x "$HOME/.local/bin/eclipse-hadoop.sh"
     sudo ln -sf "$HOME/.local/bin/eclipse-hadoop.sh" /usr/local/bin/eclipse-hadoop
 
