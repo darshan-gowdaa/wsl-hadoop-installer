@@ -79,8 +79,8 @@ download_file() {
     local output=$2
     local mirrors=(
         "$url"
-        "https://dlcdn.apache.org/$(echo $url | sed 's|https://[^/]*/||')"
-        "https://archive.apache.org/dist/$(echo $url | sed 's|https://[^/]*/||')"
+        "https://dlcdn.apache.org/$(echo "$url" | sed 's|https://[^/]*/||')"
+        "https://archive.apache.org/dist/$(echo "$url" | sed 's|https://[^/]*/||')"
     )
     
     info "Downloading $(basename $output)..."
@@ -88,7 +88,8 @@ download_file() {
     for mirror in "${mirrors[@]}"; do
         log "Trying mirror: $mirror"
         if wget --progress=bar:force --timeout=60 --tries=2 -O "$output" "$mirror" 2>&1; then
-            if [ -f "$output" ] && [ $(stat -c%s "$output" 2>/dev/null || echo 0) -gt 1000000 ]; then
+            local filesize=$(stat -c%s "$output" 2>/dev/null || echo 0)
+            if [ -f "$output" ] && [ "$filesize" -gt 1000000 ]; then
                 success "Download complete"
                 return 0
             fi
@@ -225,13 +226,17 @@ EOF
         sudo service ssh start &>/dev/null || warn "SSH service failed to start"
     fi
     
-    if ! pgrep -x mysqld >/dev/null; then
+    if ! pgrep -x mysqld > /dev/null; then
         # Ensure MySQL directories exist
         sudo mkdir -p /var/run/mysqld 2>/dev/null || true
         sudo chown mysql:mysql /var/run/mysqld 2>/dev/null || true
         
         if ! sudo service mysql start &>/dev/null; then
-            warn "MySQL service failed to start - will retry during Hive installation"
+            warn "MySQL service failed to start"
+            warn "Hive installation will fail without MySQL"
+            warn "To fix manually run: sudo service mysql start"
+        else
+            success "MySQL service started"
         fi
     fi
     
@@ -252,6 +257,11 @@ install_hadoop() {
     fi
     
     echo -e "\n${BOLD}Installing Hadoop ${HADOOP_VERSION}${NC}"
+    
+    # Verify Java 11 exists
+    if [ ! -d "/usr/lib/jvm/java-11-openjdk-amd64" ]; then
+        error "Java 11 not found. Install with: sudo apt-get install -y openjdk-11-jdk"
+    fi
     
     mkdir -p "$INSTALL_DIR" && cd "$INSTALL_DIR"
     
@@ -465,7 +475,8 @@ install_pig() {
         local downloaded=false
         for mirror in "${mirrors[@]}"; do
             if wget --progress=bar:force --timeout=60 --tries=2 -O "pig.tgz" "$mirror"; then
-                if [ -f "pig.tgz" ] && [ $(stat -c%s "pig.tgz" 2>/dev/null || echo 0) -gt 1000000 ]; then
+                local filesize=$(stat -c%s "pig.tgz" 2>/dev/null || echo 0)
+                if [ -f "pig.tgz" ] && [ "$filesize" -gt 1000000 ]; then
                     downloaded=true
                     break
                 fi
@@ -507,9 +518,13 @@ install_hive() {
     
     rm -f hive && ln -s "apache-hive-${HIVE_VERSION}-bin" hive
     
-    # MySQL setup
-    sudo service mysql start &>/dev/null || true
-    sleep 2
+    # MySQL setup - with proper error checking
+    if ! sudo service mysql start &>/dev/null; then
+        if ! pgrep -x mysqld > /dev/null; then
+            error "MySQL is required for Hive but failed to start. Run: sudo service mysql start"
+        fi
+    fi
+    sleep 3
     
     sudo mysql -u root <<'SQL' 2>/dev/null || true
 CREATE DATABASE IF NOT EXISTS metastore;
@@ -874,7 +889,7 @@ start_services() {
     # Wait for HDFS safe mode
     info "Waiting for HDFS to exit safe mode..."
     local attempts=0
-    local max_attempts=60
+    local max_attempts=120  # Increased to 2 minutes for slow systems
     while [ $attempts -lt $max_attempts ]; do
         if "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode get 2>/dev/null | grep -q "OFF"; then
             success "HDFS ready"
@@ -991,6 +1006,13 @@ main() {
     while true; do
         show_menu
         read -p "Select option: " choice
+        
+        # Validate input is numeric
+        if [[ ! "$choice" =~ ^[0-9]+$ ]]; then
+            echo -e "${RED}Invalid option. Please enter a number (0-9).${NC}"
+            sleep 2
+            continue
+        fi
         
         case $choice in
 

@@ -1,0 +1,9 @@
+# Ensure shell scripts always use LF line endings (Unix)
+*.sh text eol=lf
+
+# Markdown and text files use LF
+*.md text eol=lf
+*.txt text eol=lf
+
+# Default behavior for other text files
+* text=auto
