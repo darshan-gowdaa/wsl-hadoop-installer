@@ -607,7 +607,7 @@ EOF
 }
 
 install_eclipse() {
-    skip_if_installed "eclipse_full" "Eclipse" && return
+    # skip_if_installed "eclipse_full" "Eclipse" && return
 
     echo -e "\n${BOLD}Installing Eclipse IDE for MapReduce Development${NC}"
     
