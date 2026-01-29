@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WSL Hadoop Ecosystem - Interactive Menu Installer
+# WSL Hadoop Ecosystem - Interactive Menu Installer v3 (Optimized)
 # by github.com/darshan-gowdaa
 
 set -Ee
@@ -35,6 +35,16 @@ warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 mark_done() { echo "$1" >> "$STATE_FILE"; }
 is_done() { [ -f "$STATE_FILE" ] && grep -Fxq "$1" "$STATE_FILE" 2>/dev/null; }
 
+skip_if_installed() {
+    local component=$1
+    local message=$2
+    if is_done "$component"; then
+        info "$message already installed"
+        return 0
+    fi
+    return 1
+}
+
 configure_dns_server() {
     local dns_name=$1
     local primary_dns=$2
@@ -56,8 +66,43 @@ EOF
 check_java_version() {
     local version=$1
     local java_path="/usr/lib/jvm/java-$version-openjdk-amd64"
-    if [ ! -d "$java_path" ]; then
-        error "Java $version not found. Install with: sudo apt-get install -y openjdk-$version-jdk"
+    [ -d "$java_path" ] || error "Java $version not found. Install with: sudo apt-get install -y openjdk-$version-jdk"
+}
+
+ensure_service_running() {
+    local service_name=$1
+    local process_name=$2
+    local warn_msg=$3
+    
+    if ! pgrep -x "$process_name" >/dev/null; then
+        if [ "$service_name" = "mysql" ]; then
+            sudo mkdir -p /var/run/mysqld 2>/dev/null || true
+            sudo chown mysql:mysql /var/run/mysqld 2>/dev/null || true
+        fi
+        
+        if ! sudo service "$service_name" start &>/dev/null; then
+            [ -n "$warn_msg" ] && warn "$warn_msg" || warn "$service_name service failed to start"
+            return 1
+        else
+            success "$service_name service started"
+        fi
+    fi
+    return 0
+}
+
+setup_hdfs_directories() {
+    info "Creating HDFS directories..."
+    "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/$USER /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null || true
+    "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null || true
+}
+
+check_service_port() {
+    local name=$1
+    local port=$2
+    if nc -z localhost "$port" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} $name (port $port)"
+    else
+        echo -e "  ${RED}✗${NC} $name (port $port)"
     fi
 }
 
@@ -68,15 +113,6 @@ run_install_workflow() {
     success "$component_name installed"
     echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
     read -p "Press Enter to continue..."
-}
-
-safe_execute() {
-    if "$@" 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
-        return 0
-    else
-        warn "Non-critical error in: $*"
-        return 0
-    fi
 }
 
 spinner() {
@@ -128,7 +164,6 @@ download_file() {
                 success "Download complete"
                 return 0
             fi
-            rm -f "$output"
         fi
         rm -f "$output"
         warn "Mirror failed, trying next..."
@@ -147,7 +182,7 @@ check_command() {
 preflight_checks() {
     clear
     echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}   Hadoop WSL Installer - Github.com/Darshan-Gowdaa  ${NC}"
+    echo -e "${GREEN}   Hadoop WSL Installer v3 - Github.com/Darshan-Gowdaa  ${NC}"
     echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}\n"
     
     # Configure DNS with intelligent fallback
@@ -215,10 +250,7 @@ preflight_checks() {
 # ==================== INSTALLATION FUNCTIONS ====================
 
 install_system_deps() {
-    if is_done "system_setup"; then
-        info "System dependencies already installed"
-        return
-    fi
+    skip_if_installed "system_setup" "System dependencies" && return
     
     echo -e "\n${BOLD}Installing System Dependencies${NC}"
     
@@ -246,13 +278,12 @@ install_system_deps() {
         cat "$HOME/.ssh/id_rsa.pub" >> "$HOME/.ssh/authorized_keys"
     fi
     
-    chmod 700 ~/.ssh 2>/dev/null || true
-    chmod 600 ~/.ssh/id_rsa 2>/dev/null || true
-    chmod 600 ~/.ssh/authorized_keys 2>/dev/null || true
+    # Consolidated SSH permissions
+    chmod 700 ~/.ssh
+    chmod 600 ~/.ssh/{id_rsa,authorized_keys,config} 2>/dev/null || true
     chmod 644 ~/.ssh/id_rsa.pub 2>/dev/null || true
     
     # SSH config
-    mkdir -p ~/.ssh
     cat > ~/.ssh/config <<'EOF'
 Host localhost 127.0.0.1 0.0.0.0
     StrictHostKeyChecking no
@@ -262,23 +293,8 @@ EOF
     chmod 600 ~/.ssh/config
     
     # Start services with checks
-    if ! pgrep -x sshd >/dev/null; then
-        sudo service ssh start &>/dev/null || warn "SSH service failed to start"
-    fi
-    
-    if ! pgrep -x mysqld > /dev/null; then
-        # Ensure MySQL directories exist
-        sudo mkdir -p /var/run/mysqld 2>/dev/null || true
-        sudo chown mysql:mysql /var/run/mysqld 2>/dev/null || true
-        
-        if ! sudo service mysql start &>/dev/null; then
-            warn "MySQL service failed to start"
-            warn "Hive installation will fail without MySQL"
-            warn "To fix manually run: sudo service mysql start"
-        else
-            success "MySQL service started"
-        fi
-    fi
+    ensure_service_running "ssh" "sshd" "SSH service failed to start"
+    ensure_service_running "mysql" "mysqld" "Hive installation will fail without MySQL. To fix manually run: sudo service mysql start"
     
     # IPv6 fix
     if ! grep -q "disable_ipv6" /etc/sysctl.conf 2>/dev/null; then
@@ -291,10 +307,7 @@ EOF
 }
 
 install_hadoop() {
-    if is_done "hadoop_full"; then
-        info "Hadoop already installed"
-        return
-    fi
+    skip_if_installed "hadoop_full" "Hadoop" && return
     
     echo -e "\n${BOLD}Installing Hadoop ${HADOOP_VERSION}${NC}"
     
@@ -387,10 +400,7 @@ EOF
 }
 
 install_spark() {
-    if is_done "spark_full"; then
-        info "Spark already installed"
-        return
-    fi
+    skip_if_installed "spark_full" "Spark" && return
     
     echo -e "\n${BOLD}Installing Spark ${SPARK_VERSION}${NC}"
     
@@ -425,10 +435,7 @@ EOF
 }
 
 install_kafka() {
-    if is_done "kafka_full"; then
-        info "Kafka already installed"
-        return
-    fi
+    skip_if_installed "kafka_full" "Kafka" && return
     
     echo -e "\n${BOLD}Installing Kafka ${KAFKA_VERSION}${NC}"
     
@@ -493,16 +500,14 @@ EOF
 }
 
 install_pig() {
-    if is_done "pig_full"; then
-        info "Pig already installed"
-        return
-    fi
+    skip_if_installed "pig_full" "Pig" && return
     
     echo -e "\n${BOLD}Installing Pig ${PIG_VERSION}${NC}"
     
     cd "$INSTALL_DIR"
     
     if [ ! -d "pig-${PIG_VERSION}" ]; then
+        # Custom mirror logic for Pig (more reliable than generic download_file)
         local mirrors=(
             "https://archive.apache.org/dist/pig/pig-${PIG_VERSION}/pig-${PIG_VERSION}.tar.gz"
             "https://downloads.apache.org/pig/pig-${PIG_VERSION}/pig-${PIG_VERSION}.tar.gz"
@@ -534,10 +539,7 @@ install_pig() {
 }
 
 install_hive() {
-    if is_done "hive_full"; then
-        info "Hive already installed"
-        return
-    fi
+    skip_if_installed "hive_full" "Hive" && return
     
     echo -e "\n${BOLD}Installing Hive ${HIVE_VERSION}${NC}"
     
@@ -555,11 +557,8 @@ install_hive() {
     rm -f hive && ln -s "apache-hive-${HIVE_VERSION}-bin" hive
     
     # MySQL setup - with proper error checking
-    if ! sudo service mysql start &>/dev/null; then
-        if ! pgrep -x mysqld > /dev/null; then
-            error "MySQL is required for Hive but failed to start. Run: sudo service mysql start"
-        fi
-    fi
+    ensure_service_running "mysql" "mysqld" "MySQL is required for Hive. Run: sudo service mysql start" || \
+        error "MySQL is required for Hive but failed to start"
     sleep 3
     
     sudo mysql -u root <<'SQL' 2>/dev/null || true
@@ -593,10 +592,7 @@ EOF
 }
 
 install_eclipse() {
-    if is_done "eclipse_full"; then
-        info "Eclipse already installed"
-        return
-    fi
+    skip_if_installed "eclipse_full" "Eclipse" && return
 
     echo -e "\n${BOLD}Installing Eclipse IDE for MapReduce Development${NC}"
     
@@ -717,10 +713,7 @@ EOF
 }
 
 setup_environment() {
-    if is_done "env_setup"; then
-        info "Environment already configured"
-        return
-    fi
+    skip_if_installed "env_setup" "Environment" && return
     
     echo -e "\n${BOLD}Configuring Environment${NC}"
     
@@ -747,10 +740,7 @@ BASHRC
 }
 
 create_scripts() {
-    if is_done "scripts_created"; then
-        info "Helper scripts already created"
-        return
-    fi
+    skip_if_installed "scripts_created" "Helper scripts" && return
     
     echo -e "\n${BOLD}Creating Helper Scripts${NC}"
     
@@ -767,8 +757,9 @@ sleep 3
 "$INSTALL_DIR/hadoop/sbin/start-yarn.sh" &>/dev/null
 sleep 3
 
-"$INSTALL_DIR/hadoop/bin/hdfs" dfs -mkdir -p /user/$USER /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null
-"$INSTALL_DIR/hadoop/bin/hdfs" dfs -chmod 777 /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null
+export HADOOP_HOME="$INSTALL_DIR/hadoop"
+"$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/$USER /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null
+"$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null
 
 nohup "$INSTALL_DIR/hive/bin/hive" --service metastore &>/dev/null &
 JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 nohup "$INSTALL_DIR/kafka/bin/kafka-server-start.sh" "$INSTALL_DIR/kafka/config/kraft-server.properties" &>/dev/null &
@@ -795,27 +786,110 @@ STOP
     success "Helper scripts created"
 }
 
+install_full_stack() {
+    echo -e "\n${BOLD}${GREEN}Installing Full Hadoop Ecosystem...${NC}\n"
+    info "This will install: Hadoop, Spark, Kafka, Hive, and Pig"
+    read -p "Continue? (y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        return
+    fi
+    
+    install_system_deps
+    install_hadoop
+    install_spark
+    install_kafka
+    install_pig
+    install_hive
+    setup_environment
+    create_scripts
+    
+    success "Full Stack Installation Complete!"
+    echo -e "${CYAN}Next Steps: source ~/.bashrc, then run ~/start-hadoop.sh${NC}"
+    read -p "Press Enter to continue..."
+}
+
+show_installation_info() {
+    clear
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                    Installation Information                   ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}\n"
+    
+    echo -e "${BOLD}Installed Components:${NC}"
+    is_done "hadoop_full" && echo -e "  ${GREEN}✓${NC} Hadoop ${HADOOP_VERSION}" || echo -e "  ${YELLOW}○${NC} Hadoop ${HADOOP_VERSION}"
+    is_done "spark_full" && echo -e "  ${GREEN}✓${NC} Spark ${SPARK_VERSION}" || echo -e "  ${YELLOW}○${NC} Spark ${SPARK_VERSION}"
+    is_done "kafka_full" && echo -e "  ${GREEN}✓${NC} Kafka ${KAFKA_VERSION}" || echo -e "  ${YELLOW}○${NC} Kafka ${KAFKA_VERSION}"
+    is_done "pig_full" && echo -e "  ${GREEN}✓${NC} Pig ${PIG_VERSION}" || echo -e "  ${YELLOW}○${NC} Pig ${PIG_VERSION}"
+    is_done "hive_full" && echo -e "  ${GREEN}✓${NC} Hive ${HIVE_VERSION}" || echo -e "  ${YELLOW}○${NC} Hive ${HIVE_VERSION}"
+    is_done "eclipse_full" && echo -e "  ${GREEN}✓${NC} Eclipse IDE" || echo -e "  ${YELLOW}○${NC} Eclipse IDE"
+    
+    echo -e "\n${BOLD}Installation Directory:${NC} $INSTALL_DIR"
+    
+    echo -e "\n${BOLD}Helper Scripts:${NC}"
+    [ -f "$HOME/start-hadoop.sh" ] && echo -e "  ${GREEN}✓${NC} ~/start-hadoop.sh" || echo -e "  ${YELLOW}○${NC} ~/start-hadoop.sh"
+    [ -f "$HOME/stop-hadoop.sh" ] && echo -e "  ${GREEN}✓${NC} ~/stop-hadoop.sh" || echo -e "  ${YELLOW}○${NC} ~/stop-hadoop.sh"
+    
+    echo -e "\n${BOLD}System:${NC} $(free -m 2>/dev/null | awk '/^Mem:/{print int($2/1024)}')GB RAM, $(df -BG "$HOME" 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/G//')GB Free"
+    
+    if [ -d "$INSTALL_DIR/hadoop" ]; then
+        echo -e "\n${BOLD}Web Interfaces:${NC}"
+        echo -e "  HDFS: ${CYAN}http://localhost:9870${NC}  YARN: ${CYAN}http://localhost:8088${NC}"
+    fi
+    
+    echo -e "\n${BOLD}Quick Commands:${NC}"
+    echo -e "  ${CYAN}~/start-hadoop.sh${NC}  |  ${CYAN}~/stop-hadoop.sh${NC}  |  ${CYAN}hdfs dfs -ls /${NC}"
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
 # ==================== MENU SYSTEM ====================
+
+get_install_status() {
+    local component=$1
+    if is_done "$component"; then
+        echo -e "${GREEN}✓${NC}"
+    else
+        echo -e "${YELLOW}○${NC}"
+    fi
+}
 
 show_menu() {
     clear
-    echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║ Hadoop Installation for WSL github.com/darshangowdaa  ║${NC}"
-    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}\n"
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║        Hadoop Ecosystem Installer v3 - Optimized              ║${NC}"
+    echo -e "${GREEN}║        github.com/darshan-gowdaa                               ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}\n"
     
-    echo -e "${CYAN}Installation Options:${NC}"
-    echo -e "  ${BOLD}1)${NC} Hadoop Only"
-    echo -e "  ${BOLD}2)${NC} Spark Only"
-    echo -e "  ${BOLD}3)${NC} Kafka Only"
-    echo -e "  ${BOLD}4)${NC} Pig Only [Beta Version]"
-    echo -e "  ${BOLD}5)${NC} Hive Only [Beta Version]"
-    echo -e "  ${BOLD}6)${NC} Eclipse IDE with Hadoop Plugin"
+    # Installation status
+    local hadoop_status=$(get_install_status "hadoop_full")
+    local spark_status=$(get_install_status "spark_full")
+    local kafka_status=$(get_install_status "kafka_full")
+    local pig_status=$(get_install_status "pig_full")
+    local hive_status=$(get_install_status "hive_full")
+    local eclipse_status=$(get_install_status "eclipse_full")
+    
+    echo -e "${CYAN}${BOLD}COMPONENT INSTALLATION${NC}"
+    echo -e "  ${BOLD}1)${NC} $hadoop_status Hadoop ${HADOOP_VERSION}          ${YELLOW}[Core: HDFS + YARN + MapReduce]${NC}"
+    echo -e "  ${BOLD}2)${NC} $spark_status Spark ${SPARK_VERSION}           ${YELLOW}[Analytics Engine]${NC}"
+    echo -e "  ${BOLD}3)${NC} $kafka_status Kafka ${KAFKA_VERSION}           ${YELLOW}[Stream Processing]${NC}"
+    echo -e "  ${BOLD}4)${NC} $pig_status Pig ${PIG_VERSION}              ${YELLOW}[Data Flow Scripting - Beta]${NC}"
+    echo -e "  ${BOLD}5)${NC} $hive_status Hive ${HIVE_VERSION}            ${YELLOW}[SQL on Hadoop - Beta]${NC}"
+    echo -e "  ${BOLD}6)${NC} $eclipse_status Eclipse IDE              ${YELLOW}[MapReduce Development]${NC}"
     echo ""
-    echo -e "${CYAN}Management:${NC}"
+    echo -e "${CYAN}${BOLD}QUICK INSTALL${NC}"
+    echo -e "  ${BOLD}A)${NC} Full Stack                  ${YELLOW}[Hadoop + Spark + Kafka + Hive + Pig]${NC}"
+    echo ""
+    echo -e "${CYAN}${BOLD}SERVICE MANAGEMENT${NC}"
     echo -e "  ${BOLD}7)${NC} Start All Services"
     echo -e "  ${BOLD}8)${NC} Stop All Services"
-    echo -e "  ${BOLD}9)${NC} Check Status"
+    echo -e "  ${BOLD}9)${NC} Check Status & Health"
+    echo ""
+    echo -e "${CYAN}${BOLD}INFORMATION${NC}"
+    echo -e "  ${BOLD}I)${NC} Show Installation Info"
     echo -e "  ${BOLD}0)${NC} Exit"
+    echo ""
+    echo -e "${BOLD}Legend:${NC} ${GREEN}✓${NC}=Installed  ${YELLOW}○${NC}=Not Installed"
     echo ""
 }
 
@@ -825,11 +899,7 @@ check_status() {
     local services=("NameNode:9870" "DataNode:9864" "ResourceManager:8088" "NodeManager:8042" "Kafka:9092" "HiveMetaStore:9083")
     for svc in "${services[@]}"; do
         IFS=':' read -r name port <<< "$svc"
-        if nc -z localhost "$port" 2>/dev/null; then
-            echo -e "  ${GREEN}✓${NC} $name (port $port)"
-        else
-            echo -e "  ${RED}✗${NC} $name (port $port)"
-        fi
+        check_service_port "$name" "$port"
     done
     
     echo -e "\n${BOLD}Java Processes:${NC}"
@@ -858,14 +928,10 @@ start_services() {
     export HADOOP_HOME="${HADOOP_HOME:-$INSTALL_DIR/hadoop}"
     
     # Verify Hadoop is installed
-    if [ ! -d "$HADOOP_HOME" ]; then
-        error "Hadoop not installed. Install it first from menu."
-    fi
+    [ -d "$HADOOP_HOME" ] || error "Hadoop not installed. Install it first from menu."
     
     # Ensure SSH is running
-    if ! pgrep -x sshd >/dev/null; then
-        sudo service ssh start &>/dev/null || warn "SSH service not started"
-    fi
+    ensure_service_running "ssh" "sshd" "SSH service not started"
     
     # Test SSH connectivity
     if ! ssh -o BatchMode=yes -o ConnectTimeout=5 localhost exit &>/dev/null; then
@@ -879,9 +945,7 @@ start_services() {
     sleep 5
     
     # Verify NameNode started
-    if ! pgrep -f "NameNode" >/dev/null; then
-        error "NameNode failed to start. Check: $HADOOP_HOME/logs/hadoop-$USER-namenode-*.log"
-    fi
+    pgrep -f "NameNode" >/dev/null || error "NameNode failed to start. Check: $HADOOP_HOME/logs/hadoop-$USER-namenode-*.log"
     
     # Start YARN
     if ! execute_with_spinner "Starting YARN" "$HADOOP_HOME/sbin/start-yarn.sh"; then
@@ -907,24 +971,14 @@ start_services() {
         "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode leave &>/dev/null || true
     fi
     
-    # Create HDFS directories
-    info "Creating HDFS directories..."
-    "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/$USER 2>/dev/null || true
-    "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /spark-logs 2>/dev/null || true
-    "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/hive/warehouse 2>/dev/null || true
-    "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /tmp/hive 2>/dev/null || true
-    "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null || true
+    # Create HDFS directories using helper function
+    setup_hdfs_directories
     
     # Start Hive Metastore if installed
     if [ -d "$INSTALL_DIR/hive" ] && is_done "hive_full"; then
         if ! pgrep -f "HiveMetaStore" >/dev/null; then
             info "Starting Hive Metastore..."
-            
-            # Ensure MySQL is running
-            if ! pgrep -x mysqld >/dev/null; then
-                sudo service mysql start &>/dev/null || warn "MySQL not started"
-            fi
-            
+            ensure_service_running "mysql" "mysqld" "MySQL not started"
             nohup "$INSTALL_DIR/hive/bin/hive" --service metastore \
                 > "$INSTALL_DIR/hive/metastore.log" 2>&1 &
             sleep 2
@@ -960,14 +1014,10 @@ stop_services() {
     fi
     
     # Stop YARN
-    if [ -x "$HADOOP_HOME/sbin/stop-yarn.sh" ]; then
-        execute_with_spinner "Stopping YARN" "$HADOOP_HOME/sbin/stop-yarn.sh"
-    fi
+    [ -x "$HADOOP_HOME/sbin/stop-yarn.sh" ] && execute_with_spinner "Stopping YARN" "$HADOOP_HOME/sbin/stop-yarn.sh"
     
     # Stop HDFS
-    if [ -x "$HADOOP_HOME/sbin/stop-dfs.sh" ]; then
-        execute_with_spinner "Stopping HDFS" "$HADOOP_HOME/sbin/stop-dfs.sh"
-    fi
+    [ -x "$HADOOP_HOME/sbin/stop-dfs.sh" ] && execute_with_spinner "Stopping HDFS" "$HADOOP_HOME/sbin/stop-dfs.sh"
     
     # Stop Hive
     if pgrep -f "HiveMetaStore" >/dev/null; then
@@ -1010,12 +1060,15 @@ main() {
         show_menu
         read -p "Select option: " choice
         
-        # Validate input is numeric
-        if [[ ! "$choice" =~ ^[0-9]+$ ]]; then
-            echo -e "${RED}Invalid option. Please enter a number (0-9).${NC}"
+        # Validate input (allow numbers and letters A, I)
+        if [[ ! "$choice" =~ ^[0-9AaIi]+$ ]]; then
+            echo -e "${RED}Invalid option. Please enter a valid option.${NC}"
             sleep 2
             continue
         fi
+        
+        # Convert to uppercase for case matching
+        choice=$(echo "$choice" | tr '[:lower:]' '[:upper:]')
         
         case $choice in
 
@@ -1056,12 +1109,18 @@ main() {
         check_status
         read -p "Press Enter to continue..."
         ;;
+    A)
+        install_full_stack
+        ;;
+    I)
+        show_installation_info
+        ;;
     0)
         echo -e "\n${GREEN}Goodbye! :) | Star the repo if you like it!${NC}\n"
         exit 0
         ;;
     *)
-        echo -e "${RED}Invalid option. Please select 0-9.${NC}"
+        echo -e "${RED}Invalid option. Please select a valid option.${NC}"
         sleep 2
         ;;
 esac
