@@ -686,6 +686,22 @@ WSLCONF'
 
     # Create directory before writing script
     mkdir -p "$HOME/.local/bin"
+    
+    # Create custom configuration directory for Eclipse to bypass Snap read-only limits
+    # This allows us to suppress the workspace selection dialog
+    local eclipse_config="$HOME/.hadoop-eclipse-config"
+    mkdir -p "$eclipse_config/.settings"
+    
+    # Pre-seed preference to suppress workspace dialog
+    # org.eclipse.ui.ide.prefs
+    cat > "$eclipse_config/.settings/org.eclipse.ui.ide.prefs" <<EOF
+MAX_RECENT_WORKSPACES=10
+RECENT_WORKSPACES=$HOME/eclipse-workspace
+RECENT_WORKSPACES_PROTOCOL=3
+SHOW_RECENT_WORKSPACES=false
+SHOW_WORKSPACE_SELECTION_DIALOG=false
+eclipse.preferences.version=1
+EOF
 
     cat >"$HOME/.local/bin/eclipse-hadoop.sh" <<'EOF'
 #!/bin/bash
@@ -715,7 +731,9 @@ $HADOOP_HOME/bin/hdfs dfs -chmod 777 /tmp > /dev/null 2>&1
 echo "Environment ready. Launching Eclipse..."
 echo ""
 
-exec eclipse "$@"
+# We use a custom configuration directory to ensure our preferences (like suppressing the workspace prompt) apply.
+# Snap's internal config is read-only, so this redirection is required.
+exec eclipse -configuration "$HOME/.hadoop-eclipse-config" "$@"
 EOF
 
     chmod +x "$HOME/.local/bin/eclipse-hadoop.sh"
@@ -915,7 +933,7 @@ EOF
     local log_file="$HOME/eclipse_launch.log"
     info "Launch log will be written to: $log_file"
     
-    nohup "$eclipse_cmd" -data "$workspace_dir" "$java_file" > "$log_file" 2>&1 &
+    nohup "$eclipse_cmd" -data "$workspace_dir" --launcher.openFile "$java_file" > "$log_file" 2>&1 &
     
     # Give it a moment to detach
     sleep 2
