@@ -715,7 +715,7 @@ $HADOOP_HOME/bin/hdfs dfs -chmod 777 /tmp > /dev/null 2>&1
 echo "Environment ready. Launching Eclipse..."
 echo ""
 
-exec eclipse
+exec eclipse "$@"
 EOF
 
     chmod +x "$HOME/.local/bin/eclipse-hadoop.sh"
@@ -906,7 +906,16 @@ EOF
     info "Launching Eclipse..."
     
     # Launch Eclipse with the workspace AND the file open using the full path
-    nohup eclipse -data "$workspace_dir" "$java_file" >/dev/null 2>&1 &
+    # Use the wrapper script to ensure environment variables are set
+    local eclipse_cmd="eclipse-hadoop"
+    if ! command -v "$eclipse_cmd" &>/dev/null; then
+        eclipse_cmd="$HOME/.local/bin/eclipse-hadoop.sh"
+    fi
+    
+    local log_file="$HOME/eclipse_launch.log"
+    info "Launch log will be written to: $log_file"
+    
+    nohup "$eclipse_cmd" -data "$workspace_dir" "$java_file" > "$log_file" 2>&1 &
     
     # Give it a moment to detach
     sleep 2
