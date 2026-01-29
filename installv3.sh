@@ -606,6 +606,58 @@ EOF
     success "Hive installed and configured"
 }
 
+
+configure_eclipse_user_library() {
+    local eclipse_config="$HOME/.hadoop-eclipse-config"
+    local prefs_file="$eclipse_config/.settings/org.eclipse.jdt.core.prefs"
+    mkdir -p "$eclipse_config/.settings"
+
+    info "Generating Eclipse User Library definition for Hadoop..."
+
+    # Directories to include
+    local hadoop_dirs=(
+        "common"
+        "common/lib"
+        "hdfs"
+        "hdfs/lib"
+        "mapreduce"
+        "mapreduce/lib"
+        "yarn"
+        "yarn/lib"
+    )
+
+    local xml_content="<?xml version=\"1.0\" encoding=\"UTF-8\"?><userlibrary systemlibrary=\"false\" version=\"2\">"
+    
+    for subdir in "${hadoop_dirs[@]}"; do
+        for jar in "$INSTALL_DIR/hadoop/share/hadoop/$subdir"/*.jar; do
+            if [[ -f "$jar" ]] && [[ ! "$jar" == *"tests.jar" ]] && [[ ! "$jar" == *"sources.jar" ]]; then
+                # Eclipse needs absolute paths. Escape for XML.
+                local jar_path=$(readlink -f "$jar")
+                xml_content="${xml_content}<archive path=\"${jar_path}\"/>"
+            fi
+        done
+    done
+    xml_content="${xml_content}</userlibrary>"
+
+    # Escape XML for properties file (key=value)
+    # 1. Escape backslashes
+    # 2. Escape newlines (though we have none here)
+    # 3. Escape colons and equals signs (standard properties file)
+    # However, Eclipse prefs often store raw XML if it's on one line, but let's be safe and just put it as one line.
+    
+    # Actually, Eclipse stores it as: org.eclipse.jdt.core.userLibrary.Hadoop=<?xml ...
+    # We just need to make sure we append or replace that specific line.
+    
+    # Remove existing entry if present
+    touch "$prefs_file"
+    sed -i '/org.eclipse.jdt.core.userLibrary.Hadoop/d' "$prefs_file"
+    
+    # Append new entry
+    echo "org.eclipse.jdt.core.userLibrary.Hadoop=$xml_content" >> "$prefs_file"
+    
+    success "Eclipse User Library 'Hadoop' configured"
+}
+
 install_eclipse() {
     # Always run configuration to ensure wrapper/prefs are current
     # skip_if_installed removed to allow repair/update
@@ -704,12 +756,15 @@ SHOW_WORKSPACE_SELECTION_DIALOG=false
 eclipse.preferences.version=1
 EOF
 
+    # Configure User Library
+    configure_eclipse_user_library
+
     # Pre-seed Java Compiler preferences to default to Java 11 (instead of 21)
     # org.eclipse.jdt.core.prefs
     cat > "$eclipse_config/.settings/org.eclipse.jdt.core.prefs" <<EOF
-org.eclipse.jdt.core.compiler.codegen.targetPlatform=11
-org.eclipse.jdt.core.compiler.compliance=11
-org.eclipse.jdt.core.compiler.source=11
+org.eclipse.jdt.core.compiler.codegen.targetPlatform=1.8
+org.eclipse.jdt.core.compiler.compliance=1.8
+org.eclipse.jdt.core.compiler.source=1.8
 eclipse.preferences.version=1
 EOF
 
@@ -891,34 +946,15 @@ EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
 	<classpathentry kind="src" path="src"/>
-	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-11"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.8"/>
 EOF
 
-    # Add ALL Hadoop JARs (Common, HDFS, YARN, MapReduce) and their libs
-    info "Adding Hadoop JARs to classpath..."
-    
-    # Directories to include
-    local hadoop_dirs=(
-        "common"
-        "common/lib"
-        "hdfs"
-        "hdfs/lib"
-        "mapreduce"
-        "mapreduce/lib"
-        "yarn"
-        "yarn/lib"
-    )
-    
-    for subdir in "${hadoop_dirs[@]}"; do
-        for jar in "$INSTALL_DIR/hadoop/share/hadoop/$subdir"/*.jar; do
-            # Skip test jars and sources to keep it clean, but ensure we get the main ones
-            if [[ -f "$jar" ]] && [[ ! "$jar" == *"tests.jar" ]] && [[ ! "$jar" == *"sources.jar" ]]; then
-                echo "	<classpathentry kind=\"lib\" path=\"$jar\"/>" >> "$proj_dir/.classpath"
-            fi
-        done
-    done
-    
-    echo "</classpath>" >> "$proj_dir/.classpath"
+    # Add User Library to classpath
+    info "Adding 'Hadoop' User Library to classpath..."
+    cat >> "$proj_dir/.classpath" <<EOF
+	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/Hadoop"/>
+</classpath>
+EOF
 
     # Create Java File Template (Default Package)
     local java_file="$src_dir/$class_name.java"
