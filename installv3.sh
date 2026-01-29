@@ -29,10 +29,10 @@ BOLD='\033[1m'
 # ==================== UTILITY FUNCTIONS ====================
 
 log() { echo "[$(date +'%H:%M:%S')] $1" | tee -a "$LOG_FILE"; }
-error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
-success() { echo -e "${GREEN}[OK]${NC} $1"; }
-info() { echo -e "${CYAN}[INFO]${NC} $1"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error() { echo -e "${RED}✗${NC} $1" >&2; exit 1; }
+success() { echo -e "${GREEN}✓${NC} $1"; }
+info() { echo -e "${CYAN}○${NC} $1"; }
+warn() { echo -e "${YELLOW}!${NC} $1"; }
 
 mark_done() { echo "$1" >> "$STATE_FILE"; }
 is_done() { [ -f "$STATE_FILE" ] && grep -Fxq "$1" "$STATE_FILE" 2>/dev/null; }
