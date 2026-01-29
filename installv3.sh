@@ -805,6 +805,14 @@ EOF
     sudo ln -sf "$HOME/.local/bin/eclipse-hadoop.sh" /usr/local/bin/eclipse-hadoop
 
     success "Eclipse and Maven installed successfully"
+
+    echo -e "\n${YELLOW}IMPORTANT FIRST LAUNCH INSTRUCTION:${NC}"
+    echo -e "When launching Eclipse for the first time:"
+    echo -e "1. Accept the default workspace directory."
+    echo -e "2. ${BOLD}CHECK the box${NC} 'Use this as the default and do not ask again'."
+    echo -e "3. Click 'Launch'."
+    echo -e "${CYAN}This prevents future workspace issues.${NC}\n"
+
     info "Launch with: eclipse-hadoop"
     
     mark_done "eclipse_full"
@@ -1024,8 +1032,8 @@ EOF
 EOF
 
     success "Project '$proj_name' created successfully!"
-    info "Created class: $class_name.java"
-    info "Created launch config: $class_name.launch"
+    info "Created class: $java_file"
+    info "Created launch config: $proj_dir/$class_name.launch"
     info "Location: $proj_dir"
     info "Launching Eclipse..."
     
@@ -1044,13 +1052,12 @@ EOF
     success "Eclipse is launching!"
     
     echo -e "\n${YELLOW}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║  IMPORTANT: To see your project in the Sidebar             ║${NC}"
+    echo -e "${YELLOW}║  IMPORTANT: To see your project/code in Eclipse            ║${NC}"
     echo -e "${YELLOW}╚════════════════════════════════════════════════════════════╝${NC}"
     echo -e "1. In Eclipse, go to: ${BOLD}File > Open Projects from File System...${NC}"
     echo -e "2. Click ${BOLD}'Directory'${NC} and navigate to:"
     echo -e "   ${CYAN}$proj_dir${NC}"
     echo -e "3. Click ${BOLD}'Finish'${NC}"
-    echo -e "\n${GREEN}This is a one-time step for each new project.${NC}\n"
     
     echo -e "${YELLOW}Navigate to:${NC}"
     echo -e "${BOLD} > $proj_name > src > (default package) > $class_name.java${NC}"
@@ -1105,6 +1112,30 @@ get_install_status() {
     fi
 }
 
+create_shortcut() {
+    echo -e "\n${BOLD}Creating Update Shortcut${NC}"
+    local shortcut_file="$HOME/dg-script.sh"
+    
+    # Create the shortcut script
+    if cat > "$shortcut_file" <<'EOF'
+#!/bin/bash
+bash <(curl -fsSL https://raw.githubusercontent.com/darshan-gowdaa/wsl-hadoop-installer/main/installv3.sh)
+EOF
+    then
+        if chmod +x "$shortcut_file"; then
+            success "Shortcut created at: $shortcut_file"
+            info "You can now update/run the installer anytime with:"
+            echo -e "  ${CYAN}./dg-script.sh${NC}"
+        else
+            error "Failed to make shortcut executable."
+        fi
+    else
+        error "Failed to create shortcut file."
+    fi
+    
+    read -p "Press Enter to continue..."
+}
+
 show_menu() {
     clear
     echo -e "\n${CYAN}════════════════════════════════════════════════════════════════${NC}"
@@ -1136,6 +1167,7 @@ show_menu() {
     echo -e "\n ${BOLD}${CYAN}SYSTEM:${NC}\n"
     echo -e "  ${BOLD}I)${NC} Installation Info"
     echo -e "  ${BOLD}P)${NC} Create Eclipse Project"
+    echo -e "  ${BOLD}S)${NC} Create Update Shortcut"
     echo -e "  ${BOLD}0)${NC} Exit"
     echo ""
 }
@@ -1307,8 +1339,8 @@ main() {
         show_menu
         read -p "Select option: " choice
         
-        # Validate input (allow numbers and letters A, I)
-        if [[ ! "$choice" =~ ^[0-9AaIiPp]+$ ]]; then
+        # Validate input (allow numbers and letters A, I, P, S)
+        if [[ ! "$choice" =~ ^[0-9AaIiPpSs]+$ ]]; then
             echo -e "${RED}Invalid option. Please enter a valid option.${NC}"
             sleep 2
             continue
@@ -1362,6 +1394,9 @@ main() {
         ;;
     P)
         create_eclipse_project
+        ;;
+    S)
+        create_shortcut
         ;;
     0)
         echo -e "\n${GREEN}Goodbye! :) | Star the repo if you like it!${NC}\n"
