@@ -896,6 +896,15 @@ create_eclipse_project() {
         echo -e "${RED}Error: Project name cannot be empty.${NC}"
     done
 
+    # Get Class Name (Mandatory)
+    while true; do
+        read -p "Enter class name (e.g. WordCount): " class_name
+        if [ -n "$class_name" ]; then
+            break
+        fi
+        echo -e "${RED}Error: Class name cannot be empty.${NC}"
+    done
+    
     local workspace_dir="$HOME/eclipse-workspace"
     local proj_dir="$workspace_dir/$proj_name"
     local src_dir="$proj_dir/src"
@@ -984,12 +993,43 @@ EOF
     done
     
     echo "</classpath>" >> "$proj_dir/.classpath"
+
+    # Create Java File Template (Default Package)
+    local java_file="$src_dir/$class_name.java"
+    cat > "$java_file" <<EOF
+public class $class_name {
+
+}
+EOF
     
+    # Create Launch Configuration
+    # This ensures "Run" uses the correct JRE (Java 1.8) instead of Eclipse internal (Java 21)
+    cat > "$proj_dir/$class_name.launch" <<EOF
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<launchConfiguration type="org.eclipse.jdt.launching.localJavaApplication">
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_PATHS">
+        <listEntry value="/$proj_name/src/$class_name.java"/>
+    </listAttribute>
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_TYPES">
+        <listEntry value="1"/>
+    </listAttribute>
+    <booleanAttribute key="org.eclipse.jdt.launching.ATTR_ATTR_USE_ARGFILE" value="false"/>
+    <booleanAttribute key="org.eclipse.jdt.launching.ATTR_EXCLUDE_TEST_CODE" value="true"/>
+    <booleanAttribute key="org.eclipse.jdt.launching.ATTR_USE_CLASSPATH_ONLY_JAR" value="false"/>
+    <stringAttribute key="org.eclipse.jdt.launching.MAIN_TYPE" value="$class_name"/>
+    <stringAttribute key="org.eclipse.jdt.launching.MODULE_NAME" value="$proj_name"/>
+    <stringAttribute key="org.eclipse.jdt.launching.PROJECT_ATTR" value="$proj_name"/>
+    <stringAttribute key="org.eclipse.jdt.launching.JRE_CONTAINER" value="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.8"/>
+</launchConfiguration>
+EOF
+
     success "Project '$proj_name' created successfully!"
+    info "Created class: $class_name.java"
+    info "Created launch config: $class_name.launch"
     info "Location: $proj_dir"
     info "Launching Eclipse..."
     
-    # Launch Eclipse with the workspace
+    # Launch Eclipse with the workspace AND the file open using the full path
     # Use the wrapper script to ensure environment variables are set
     local eclipse_cmd="eclipse-hadoop"
     if ! command -v "$eclipse_cmd" &>/dev/null; then
@@ -997,7 +1037,7 @@ EOF
     fi
     
     # Launch without logging as requested
-    nohup "$eclipse_cmd" -data "$workspace_dir" >/dev/null 2>&1 &
+    nohup "$eclipse_cmd" -data "$workspace_dir" --launcher.openFile "$java_file" >/dev/null 2>&1 &
     
     # Give it a moment to detach
     sleep 2
@@ -1012,7 +1052,8 @@ EOF
     echo -e "3. Click ${BOLD}'Finish'${NC}"
     echo -e "\n${GREEN}This is a one-time step for each new project.${NC}\n"
     
-    echo -e "${YELLOW}You can now create your Class files manually.${NC}"
+    echo -e "${YELLOW}Navigate to:${NC}"
+    echo -e "${BOLD} > $proj_name > src > (default package) > $class_name.java${NC}"
     read -p "Press Enter to return to menu..."
 }
 
