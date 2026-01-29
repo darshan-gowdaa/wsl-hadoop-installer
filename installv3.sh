@@ -1141,7 +1141,7 @@ main() {
         read -p "Select option: " choice
         
         # Validate input (allow numbers and letters A, I)
-        if [[ ! "$choice" =~ ^[0-9AaIi]+$ ]]; then
+        if [[ ! "$choice" =~ ^[0-9AaIiPp]+$ ]]; then
             echo -e "${RED}Invalid option. Please enter a valid option.${NC}"
             sleep 2
             continue
