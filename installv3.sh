@@ -52,14 +52,17 @@ configure_dns_server() {
     local primary_dns=$2
     local secondary_dns=$3
     
-    if timeout 2 ping -c 1 "$primary_dns" &>/dev/null; then
-        info "$dns_name DNS ($primary_dns) is reachable"
-        cat | sudo tee /etc/resolv.conf > /dev/null <<EOF
-nameserver $primary_dns
-nameserver $secondary_dns
-EOF
-        sudo chattr +i /etc/resolv.conf 2>/dev/null || true
-        success "DNS configured: $dns_name ($primary_dns, $secondary_dns)"
+    check_and_update() {
+        if timeout 2 ping -c 1 "$1" &>/dev/null; then
+            printf "nameserver %s\nnameserver %s\n" "$1" "$2" | sudo tee /etc/resolv.conf > /dev/null
+            sudo chattr +i /etc/resolv.conf 2>/dev/null || true
+            return 0
+        fi
+        return 1
+    }
+
+    if execute_with_spinner "Configuring $dns_name DNS ($primary_dns)" check_and_update "$primary_dns" "$secondary_dns"; then
+        success "DNS Configured: $dns_name"
         return 0
     fi
     return 1
@@ -115,6 +118,15 @@ run_install_workflow() {
     success "$component_name installed"
     echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
     read -p "Press Enter to continue..."
+}
+
+safe_execute() {
+    if "$@" 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+        return 0
+    else
+        warn "Non-critical error in: $*"
+        return 0
+    fi
 }
 
 spinner() {
@@ -188,6 +200,12 @@ preflight_checks() {
     echo -e "${BLUE}               github.com/darshan-gowdaa                ${NC}"
     echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}\n"
     
+    # Check sudo first
+    if ! sudo -n true 2>/dev/null; then
+        info "Sudo access required for installation. Please enter password:"
+        sudo -v || error "Sudo authentication failed"
+    fi
+
     # Configure DNS with intelligent fallback
     info "Configuring DNS servers..."
     
@@ -238,12 +256,6 @@ preflight_checks() {
     local avail_gb=$(df -BG "$HOME" 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/G//' || echo "0")
     if [ "$avail_gb" -lt 12 ]; then
         error "Insufficient disk space. Need 12GB+, available: ${avail_gb}GB"
-    fi
-    
-    # Check sudo
-    if ! sudo -n true 2>/dev/null; then
-        info "Sudo access required. Please enter password:"
-        sudo -v || error "Sudo authentication failed"
     fi
     
     success "Pre-flight checks passed"
