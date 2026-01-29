@@ -704,6 +704,15 @@ SHOW_WORKSPACE_SELECTION_DIALOG=false
 eclipse.preferences.version=1
 EOF
 
+    # Pre-seed Java Compiler preferences to default to Java 11 (instead of 21)
+    # org.eclipse.jdt.core.prefs
+    cat > "$eclipse_config/.settings/org.eclipse.jdt.core.prefs" <<EOF
+org.eclipse.jdt.core.compiler.codegen.targetPlatform=11
+org.eclipse.jdt.core.compiler.compliance=11
+org.eclipse.jdt.core.compiler.source=11
+eclipse.preferences.version=1
+EOF
+
     cat >"$HOME/.local/bin/eclipse-hadoop.sh" <<'EOF'
 #!/bin/bash
 
@@ -877,12 +886,12 @@ create_eclipse_project() {
 </projectDescription>
 EOF
 
-    # Create .classpath with JavaSE-1.8
+    # Create .classpath with JavaSE-11 (User requested JDK 11)
     cat > "$proj_dir/.classpath" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
 	<classpathentry kind="src" path="src"/>
-	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.8"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-11"/>
 EOF
 
     # Add ALL Hadoop JARs (Common, HDFS, YARN, MapReduce) and their libs
@@ -931,10 +940,8 @@ EOF
         eclipse_cmd="$HOME/.local/bin/eclipse-hadoop.sh"
     fi
     
-    local log_file="$HOME/eclipse_launch.log"
-    info "Launch log will be written to: $log_file"
-    
-    nohup "$eclipse_cmd" -data "$workspace_dir" --launcher.openFile "$java_file" > "$log_file" 2>&1 &
+    # Launch without logging as requested
+    nohup "$eclipse_cmd" -data "$workspace_dir" --launcher.openFile "$java_file" >/dev/null 2>&1 &
     
     # Give it a moment to detach
     sleep 2
