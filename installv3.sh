@@ -34,7 +34,7 @@ success() { echo -e "${GREEN}✓${NC} $1"; }
 info() { echo -e "${CYAN}○${NC} $1"; }
 warn() { echo -e "${YELLOW}!${NC} $1"; }
 
-mark_done() { echo "$1" >> "$STATE_FILE"; }
+mark_done() { is_done "$1" || echo "$1" >> "$STATE_FILE"; }
 is_done() { [ -f "$STATE_FILE" ] && grep -Fxq "$1" "$STATE_FILE" 2>/dev/null; }
 
 skip_if_installed() {
@@ -607,7 +607,8 @@ EOF
 }
 
 install_eclipse() {
-    # skip_if_installed "eclipse_full" "Eclipse" && return
+    # Always run configuration to ensure wrapper/prefs are current
+    # skip_if_installed removed to allow repair/update
 
     echo -e "\n${BOLD}Installing Eclipse IDE for MapReduce Development${NC}"
     
