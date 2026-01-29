@@ -949,12 +949,31 @@ EOF
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.8"/>
 EOF
 
-    # Add User Library to classpath
-    info "Adding 'Hadoop' User Library to classpath..."
-    cat >> "$proj_dir/.classpath" <<EOF
-	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/Hadoop"/>
-</classpath>
-EOF
+    # Add ALL Hadoop JARs (Common, HDFS, YARN, MapReduce) and their libs
+    info "Adding Hadoop JARs to classpath..."
+    
+    # Directories to include
+    local hadoop_dirs=(
+        "common"
+        "common/lib"
+        "hdfs"
+        "hdfs/lib"
+        "mapreduce"
+        "mapreduce/lib"
+        "yarn"
+        "yarn/lib"
+    )
+    
+    for subdir in "${hadoop_dirs[@]}"; do
+        for jar in "$INSTALL_DIR/hadoop/share/hadoop/$subdir"/*.jar; do
+            # Skip test jars and sources to keep it clean, but ensure we get the main ones
+            if [[ -f "$jar" ]] && [[ ! "$jar" == *"tests.jar" ]] && [[ ! "$jar" == *"sources.jar" ]]; then
+                echo "	<classpathentry kind=\"lib\" path=\"$jar\"/>" >> "$proj_dir/.classpath"
+            fi
+        done
+    done
+    
+    echo "</classpath>" >> "$proj_dir/.classpath"
 
     # Create Java File Template (Default Package)
     local java_file="$src_dir/$class_name.java"
