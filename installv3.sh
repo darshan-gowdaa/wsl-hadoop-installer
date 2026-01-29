@@ -896,15 +896,6 @@ create_eclipse_project() {
         echo -e "${RED}Error: Project name cannot be empty.${NC}"
     done
 
-    # Get Class Name (Mandatory)
-    while true; do
-        read -p "Enter class name (e.g. WordCount): " class_name
-        if [ -n "$class_name" ]; then
-            break
-        fi
-        echo -e "${RED}Error: Class name cannot be empty.${NC}"
-    done
-    
     local workspace_dir="$HOME/eclipse-workspace"
     local proj_dir="$workspace_dir/$proj_name"
     local src_dir="$proj_dir/src"
@@ -993,21 +984,12 @@ EOF
     done
     
     echo "</classpath>" >> "$proj_dir/.classpath"
-
-    # Create Java File Template (Default Package)
-    local java_file="$src_dir/$class_name.java"
-    cat > "$java_file" <<EOF
-public class $class_name {
-
-}
-EOF
     
     success "Project '$proj_name' created successfully!"
-    info "Created class: $class_name.java"
     info "Location: $proj_dir"
     info "Launching Eclipse..."
     
-    # Launch Eclipse with the workspace AND the file open using the full path
+    # Launch Eclipse with the workspace
     # Use the wrapper script to ensure environment variables are set
     local eclipse_cmd="eclipse-hadoop"
     if ! command -v "$eclipse_cmd" &>/dev/null; then
@@ -1015,7 +997,7 @@ EOF
     fi
     
     # Launch without logging as requested
-    nohup "$eclipse_cmd" -data "$workspace_dir" --launcher.openFile "$java_file" >/dev/null 2>&1 &
+    nohup "$eclipse_cmd" -data "$workspace_dir" >/dev/null 2>&1 &
     
     # Give it a moment to detach
     sleep 2
@@ -1030,8 +1012,7 @@ EOF
     echo -e "3. Click ${BOLD}'Finish'${NC}"
     echo -e "\n${GREEN}This is a one-time step for each new project.${NC}\n"
     
-    echo -e "${YELLOW}Navigate to:${NC}"
-    echo -e "${BOLD} > $proj_name > src > (default package) > $class_name.java${NC}"
+    echo -e "${YELLOW}You can now create your Class files manually.${NC}"
     read -p "Press Enter to return to menu..."
 }
 
