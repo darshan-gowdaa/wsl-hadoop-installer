@@ -1113,7 +1113,7 @@ get_install_status() {
 }
 
 create_shortcut() {
-    echo -e "\n${BOLD}Creating Update Shortcut${NC}"
+    echo -e "\n${BOLD}Creating Script's Shortcut${NC}"
     local shortcut_file="$HOME/dg-script.sh"
     
     # Create the shortcut script
@@ -1156,24 +1156,34 @@ show_menu() {
     local hive_status=$(get_install_status "hive_full")
     local eclipse_status=$(get_install_status "eclipse_full")
     
-    echo -e " ${BOLD}${CYAN}COMPONENTS:${NC}\n"
-    printf "  ${BOLD}1)${NC} %-30s %s\n" "Hadoop [HDFS & YARN] ${HADOOP_VERSION}" "$hadoop_status"
-    printf "  ${BOLD}2)${NC} %-30s %s\n" "Spark ${SPARK_VERSION}" "$spark_status"
-    printf "  ${BOLD}3)${NC} %-30s %s\n" "Kafka ${KAFKA_VERSION}" "$kafka_status"
-    printf "  ${BOLD}4)${NC} %-30s %s\n" "Pig ${PIG_VERSION}" "$pig_status"
-    printf "  ${BOLD}5)${NC} %-30s %s\n" "Hive ${HIVE_VERSION}" "$hive_status"
-    printf "  ${BOLD}6)${NC} %-30s %s\n" "Eclipse IDE" "$eclipse_status"
+    # Shortcut status check
+    local shortcut_status
+    if [ -f "/usr/local/bin/dg-script.sh" ]; then
+        shortcut_status="${GREEN}✓${NC}"
+    else
+        shortcut_status="${YELLOW}○${NC}"
+    fi
     
-    echo -e "\n ${BOLD}${CYAN}MANAGEMENT:${NC}\n"
-    echo -e "  ${BOLD}7)${NC} Start All Services"
-    echo -e "  ${BOLD}8)${NC} Stop All Services"
-    echo -e "  ${BOLD}9)${NC} Check System Status"
+    echo -e " ${BOLD}${MAGENTA}COMPONENTS:${NC}\n"
+    printf "  ${BOLD}${CYAN}1)${NC} %-30s %s\n" "Hadoop [HDFS & YARN] ${HADOOP_VERSION}" "$hadoop_status"
+    printf "  ${BOLD}${CYAN}2)${NC} %-30s %s\n" "Spark ${SPARK_VERSION}" "$spark_status"
+    printf "  ${BOLD}${CYAN}3)${NC} %-30s %s\n" "Kafka ${KAFKA_VERSION}" "$kafka_status"
+    printf "  ${BOLD}${CYAN}4)${NC} %-30s %s\n" "Pig ${PIG_VERSION}" "$pig_status"
+    printf "  ${BOLD}${CYAN}5)${NC} %-30s %s\n" "Hive ${HIVE_VERSION}" "$hive_status"
+    printf "  ${BOLD}${CYAN}6)${NC} %-30s %s\n" "Eclipse IDE" "$eclipse_status"
     
-    echo -e "\n ${BOLD}${CYAN}SYSTEM:${NC}\n"
-    echo -e "  ${BOLD}I)${NC} Installation Info"
-    echo -e "  ${BOLD}P)${NC} Create Eclipse Project"
-    echo -e "  ${BOLD}S)${NC} Create Update Shortcut"
-    echo -e "  ${BOLD}0)${NC} Exit"
+    echo -e "\n ${BOLD}${MAGENTA}DEVELOPMENT:${NC}\n"
+    printf "  ${BOLD}${CYAN}P)${NC} %-30s\n" "Create Eclipse Project"
+    
+    echo -e "\n ${BOLD}${MAGENTA}MANAGEMENT:${NC}\n"
+    echo -e "  ${BOLD}${CYAN}7)${NC} Start All Services"
+    echo -e "  ${BOLD}${CYAN}8)${NC} Stop All Services"
+    echo -e "  ${BOLD}${CYAN}9)${NC} Check System Status"
+    
+    echo -e "\n ${BOLD}${MAGENTA}SYSTEM:${NC}\n"
+    echo -e "  ${BOLD}${CYAN}I)${NC} Installation Info"
+    printf "  ${BOLD}${CYAN}S)${NC} %-30s %s\n" "Create Script's Shortcut" "$shortcut_status"
+    echo -e "  ${BOLD}${CYAN}0)${NC} Exit"
     echo ""
 }
 
