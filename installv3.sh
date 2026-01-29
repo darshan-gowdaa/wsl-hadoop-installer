@@ -801,6 +801,95 @@ STOP
     success "Helper scripts created"
 }
 
+create_eclipse_project() {
+    echo -e "\n${BOLD}Create Eclipse Project for Hadoop${NC}"
+    
+    # Get Project Name
+    read -p "Enter project name (default: WordCountProject): " proj_name
+    proj_name=${proj_name:-WordCountProject}
+    
+    local workspace_dir="$HOME/eclipse-workspace"
+    local proj_dir="$workspace_dir/$proj_name"
+    
+    # Check/Create directory
+    if [ -d "$proj_dir" ]; then
+        warn "Directory $proj_dir already exists."
+        read -p "Overwrite? (y/n): " -n 1 -r
+        echo
+        [[ ! $REPLY =~ ^[Yy]$ ]] && return
+    fi
+    mkdir -p "$proj_dir/src"
+    
+    info "Creating project at: $proj_dir"
+    
+    # Create .project
+    cat > "$proj_dir/.project" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<projectDescription>
+	<name>$proj_name</name>
+	<comment></comment>
+	<projects>
+	</projects>
+	<buildSpec>
+		<buildCommand>
+			<name>org.eclipse.jdt.core.javabuilder</name>
+			<arguments>
+			</arguments>
+		</buildCommand>
+	</buildSpec>
+	<natures>
+		<nature>org.eclipse.jdt.core.javanature</nature>
+	</natures>
+</projectDescription>
+EOF
+
+    # Create .classpath with JavaSE-1.8
+    cat > "$proj_dir/.classpath" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="src" path="src"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.8"/>
+EOF
+
+    # Add ALL Hadoop JARs (Common, HDFS, YARN, MapReduce) and their libs
+    info "Adding Hadoop JARs to classpath..."
+    
+    # Directories to include
+    local hadoop_dirs=(
+        "common"
+        "common/lib"
+        "hdfs"
+        "hdfs/lib"
+        "mapreduce"
+        "mapreduce/lib"
+        "yarn"
+        "yarn/lib"
+    )
+    
+    for subdir in "${hadoop_dirs[@]}"; do
+        for jar in "$INSTALL_DIR/hadoop/share/hadoop/$subdir"/*.jar; do
+            # Skip test jars and sources to keep it clean, but ensure we get the main ones
+            if [[ -f "$jar" ]] && [[ ! "$jar" == *"tests.jar" ]] && [[ ! "$jar" == *"sources.jar" ]]; then
+                echo "	<classpathentry kind=\"lib\" path=\"$jar\"/>" >> "$proj_dir/.classpath"
+            fi
+        done
+    done
+    
+    echo "</classpath>" >> "$proj_dir/.classpath"
+    
+    success "Project '$proj_name' created successfully!"
+    info "Location: $proj_dir"
+    info "Launching Eclipse..."
+    
+    # Launch Eclipse with the workspace
+    nohup eclipse -data "$workspace_dir" >/dev/null 2>&1 &
+    
+    # Give it a moment to detach
+    sleep 2
+    success "Eclipse launched!"
+    read -p "Press Enter to return to menu..."
+}
+
 
 
 
@@ -879,6 +968,7 @@ show_menu() {
     
     echo -e "\n ${BOLD}${CYAN}SYSTEM:${NC}\n"
     echo -e "  ${BOLD}I)${NC} Installation Info"
+    echo -e "  ${BOLD}P)${NC} Create Eclipse Project"
     echo -e "  ${BOLD}0)${NC} Exit"
     echo ""
 }
@@ -1102,6 +1192,9 @@ main() {
 
     I)
         show_installation_info
+        ;;
+    P)
+        create_eclipse_project
         ;;
     0)
         echo -e "\n${GREEN}Goodbye! :) | Star the repo if you like it!${NC}\n"
