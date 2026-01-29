@@ -1123,9 +1123,14 @@ bash <(curl -fsSL https://raw.githubusercontent.com/darshan-gowdaa/wsl-hadoop-in
 EOF
     then
         if chmod +x "$shortcut_file"; then
-            success "Shortcut created at: $shortcut_file"
-            info "You can now update/run the installer anytime with:"
-            echo -e "  ${CYAN}./dg-script.sh${NC}"
+            # Make globally executable
+            if sudo ln -sf "$shortcut_file" /usr/local/bin/dg-script.sh; then
+                success "Shortcut created and added to PATH"
+                info "You can now run it from anywhere using:"
+                echo -e "  ${CYAN}dg-script.sh${NC}"
+            else
+                warn "Could not add to PATH. Run with: ./dg-script.sh"
+            fi
         else
             error "Failed to make shortcut executable."
         fi
