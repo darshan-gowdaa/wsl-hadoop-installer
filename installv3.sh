@@ -865,7 +865,7 @@ show_menu() {
     local eclipse_status=$(get_install_status "eclipse_full")
     
     echo -e " ${BOLD}${CYAN}COMPONENTS:${NC}\n"
-    printf "  ${BOLD}1)${NC} %-30s %s\n" "Hadoop ${HADOOP_VERSION}" "$hadoop_status"
+    printf "  ${BOLD}1)${NC} %-30s %s\n" "Hadoop [HDFS & YARN] ${HADOOP_VERSION}" "$hadoop_status"
     printf "  ${BOLD}2)${NC} %-30s %s\n" "Spark ${SPARK_VERSION}" "$spark_status"
     printf "  ${BOLD}3)${NC} %-30s %s\n" "Kafka ${KAFKA_VERSION}" "$kafka_status"
     printf "  ${BOLD}4)${NC} %-30s %s\n" "Pig ${PIG_VERSION}" "$pig_status"
