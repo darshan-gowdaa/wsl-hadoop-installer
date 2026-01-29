@@ -920,6 +920,25 @@ create_eclipse_project() {
     
     info "Creating project at: $proj_dir"
     
+    # Create project settings directory
+    mkdir -p "$proj_dir/.settings"
+
+    # FORCE Java 1.8 Compiler Settings at Project Level
+    # This prevents Eclipse from using its internal Java 21 default
+    cat > "$proj_dir/.settings/org.eclipse.jdt.core.prefs" <<EOF
+eclipse.preferences.version=1
+org.eclipse.jdt.core.compiler.codegen.inlineJsrBytecode=enabled
+org.eclipse.jdt.core.compiler.codegen.targetPlatform=1.8
+org.eclipse.jdt.core.compiler.codegen.unusedLocal=preserve
+org.eclipse.jdt.core.compiler.compliance=1.8
+org.eclipse.jdt.core.compiler.debug.lineNumber=generate
+org.eclipse.jdt.core.compiler.debug.localVariable=generate
+org.eclipse.jdt.core.compiler.debug.sourceFile=generate
+org.eclipse.jdt.core.compiler.problem.assertIdentifier=error
+org.eclipse.jdt.core.compiler.problem.enumIdentifier=error
+org.eclipse.jdt.core.compiler.source=1.8
+EOF
+
     # Create .project
     cat > "$proj_dir/.project" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
