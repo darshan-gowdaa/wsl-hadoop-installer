@@ -112,7 +112,7 @@ check_command() {
 preflight_checks() {
     clear
     echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}   Hadoop WSL Installer - github.com/darshan-gowdaa  ${NC}"
+    echo -e "${GREEN}   Hadoop WSL Installer - Github.com/Darshan-Gowdaa  ${NC}"
     echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}\n"
     
     # Configure DNS with intelligent fallback
@@ -650,9 +650,11 @@ WSLCONF'
 
     # Install Eclipse via snap
     if ! command -v eclipse &>/dev/null; then
-        if ! execute_with_spinner "Installing Eclipse via snap" sudo snap install eclipse --classic; then
+        info "Installing Eclipse via snap (this may take a few minutes)..."
+        if ! sudo snap install eclipse --classic; then
             error "Eclipse snap installation failed. Check your internet connection."
         fi
+        success "Eclipse installed successfully"
     else
         info "Eclipse already installed"
     fi
