@@ -938,7 +938,17 @@ EOF
     
     # Give it a moment to detach
     sleep 2
-    success "Eclipse launched with $class_name.java open!"
+    success "Eclipse is launching!"
+    
+    echo -e "\n${YELLOW}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║  IMPORTANT: To see your project in the Sidebar             ║${NC}"
+    echo -e "${YELLOW}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "1. In Eclipse, go to: ${BOLD}File > Open Projects from File System...${NC}"
+    echo -e "2. Click ${BOLD}'Directory'${NC} and navigate to:"
+    echo -e "   ${CYAN}$proj_dir${NC}"
+    echo -e "3. Click ${BOLD}'Finish'${NC}"
+    echo -e "\n${GREEN}This is a one-time step for each new project.${NC}\n"
+    
     echo -e "${YELLOW}Navigate to:${NC}"
     echo -e "${BOLD} > $proj_name > src > (default package) > $class_name.java${NC}"
     read -p "Press Enter to return to menu..."
