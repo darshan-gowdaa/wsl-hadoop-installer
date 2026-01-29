@@ -1,20 +1,13 @@
 # Hadoop WSL Installer
+<p align="center">
+<img width="500" height="600" alt="image" src="https://github.com/user-attachments/assets/d57eac95-8f87-4970-983b-d4b4043645db" />
+</p>
 
 Simple one-command setup to run the **Hadoop ecosystem on WSL2**.
 Made for students so you don't waste time fixing Java, SSH, or HDFS issues.
 
 ---
 
-## What You Get / Installed Versions
-
-* Hadoop 3.4.2 (HDFS + MapReduce)
-* YARN 3.4.2
-* Spark 3.5.8
-* Kafka 4.1.1 (KRaft mode, no ZooKeeper)
-* Pig 0.17.0
-* Hive 3.1.3
-* Eclipse IDE (for MapReduce development)
-* Java 11 and Java 17
 
 Everything installs inside:
 
