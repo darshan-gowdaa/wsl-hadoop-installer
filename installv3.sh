@@ -824,6 +824,7 @@ create_eclipse_project() {
     
     local workspace_dir="$HOME/eclipse-workspace"
     local proj_dir="$workspace_dir/$proj_name"
+    local src_dir="$proj_dir/src"
     
     # Check/Create directory
     if [ -d "$proj_dir" ]; then
@@ -832,7 +833,7 @@ create_eclipse_project() {
         echo
         [[ ! $REPLY =~ ^[Yy]$ ]] && return
     fi
-    mkdir -p "$proj_dir/src"
+    mkdir -p "$src_dir"
     
     info "Creating project at: $proj_dir"
     
@@ -891,8 +892,8 @@ EOF
     
     echo "</classpath>" >> "$proj_dir/.classpath"
 
-    # Create Java File Template
-    local java_file="$proj_dir/src/$class_name.java"
+    # Create Java File Template (Default Package)
+    local java_file="$src_dir/$class_name.java"
     cat > "$java_file" <<EOF
 import java.io.IOException;
 import java.util.StringTokenizer;
@@ -955,8 +956,7 @@ EOF
     info "Location: $proj_dir"
     info "Launching Eclipse..."
     
-    # Launch Eclipse with the workspace AND the file open
-    # We use the full path to the java file to open it directly
+    # Launch Eclipse with the workspace AND the file open using the full path
     nohup eclipse -data "$workspace_dir" "$java_file" >/dev/null 2>&1 &
     
     # Give it a moment to detach
