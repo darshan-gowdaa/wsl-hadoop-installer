@@ -1,19 +1,10 @@
 # Hadoop WSL Installer
 <p align="center">
-<img width="500" height="600" alt="image" src="https://github.com/user-attachments/assets/d57eac95-8f87-4970-983b-d4b4043645db" />
+  <img width="500" height="600" alt="image" src="https://github.com/user-attachments/assets/c4f1bd30-eaed-4282-bf5f-936049a9d249" />
 </p>
 
 Simple one-command setup to run the **Hadoop ecosystem on WSL2**.
 Made for students so you don't waste time fixing Java, SSH, or HDFS issues.
-
----
-
-
-Everything installs inside:
-
-```
-~/bigdata/
-```
 
 ---
 
@@ -209,6 +200,49 @@ The installer provides an interactive menu with the following options:
 
 ---
 
+## Quick Start Guide
+
+After installation completes:
+
+```bash
+# Reload environment
+source ~/.bashrc
+
+# Start all services
+~/start-hadoop.sh
+
+# Verify HDFS is working
+hdfs dfs -ls /
+
+# Run a MapReduce example
+hadoop jar $HADOOP_HOME/share/hadoop/mapreduce/hadoop-mapreduce-examples-*.jar pi 2 5
+
+# Start Spark shell
+spark-shell
+
+# Create a Kafka topic
+kafka-topics --create --topic test --bootstrap-server localhost:9092
+
+# Start Hive
+hive
+
+# Launch Eclipse for development
+eclipse-hadoop
+```
+
+---
+
+## Web Interfaces
+
+After starting services with `~/start-hadoop.sh`:
+
+- **HDFS NameNode**: http://localhost:9870
+- **YARN ResourceManager**: http://localhost:8088
+- **DataNode**: http://localhost:9864
+- **NodeManager**: http://localhost:8042
+
+---
+
 ## Features
 
 ### Smart Installation System
@@ -300,104 +334,6 @@ Opens Eclipse with Hadoop environment pre-configured
 
 ---
 
-## Quick Start Guide
-
-After installation completes:
-
-```bash
-# Reload environment
-source ~/.bashrc
-
-# Start all services
-~/start-hadoop.sh
-
-# Verify HDFS is working
-hdfs dfs -ls /
-
-# Run a MapReduce example
-hadoop jar $HADOOP_HOME/share/hadoop/mapreduce/hadoop-mapreduce-examples-*.jar pi 2 5
-
-# Start Spark shell
-spark-shell
-
-# Create a Kafka topic
-kafka-topics --create --topic test --bootstrap-server localhost:9092
-
-# Start Hive
-hive
-
-# Launch Eclipse for development
-eclipse-hadoop
-```
-
----
-
-## Web Interfaces
-
-After starting services with `~/start-hadoop.sh`:
-
-- **HDFS NameNode**: http://localhost:9870
-- **YARN ResourceManager**: http://localhost:8088
-- **DataNode**: http://localhost:9864
-- **NodeManager**: http://localhost:8042
-
----
-
-## If Something Fails
-
-Check logs:
-
-```bash
-cat ~/hadoop_install.log
-```
-
-Restart after reboot:
-
-```bash
-~/start-hadoop.sh
-```
-
-Check service status:
-
-```bash
-# From the installer menu, choose option 9
-# Or manually check:
-jps  # Lists all Java processes
-hdfs dfsadmin -report  # HDFS status
-```
-
-Common fixes:
-
-```bash
-# If SSH fails
-sudo service ssh restart
-
-# If MySQL fails (for Hive)
-sudo service mysql restart
-
-# If HDFS is in safe mode
-hdfs dfsadmin -safemode leave
-
-# Force cleanup and restart
-~/stop-hadoop.sh
-~/start-hadoop.sh
-```
-
----
-
-## Uninstall
-
-```bash
-~/stop-hadoop.sh
-rm -rf ~/bigdata
-rm ~/.hadoop_install_state
-rm ~/start-hadoop.sh ~/stop-hadoop.sh
-```
-
-Remove Hadoop-related lines from `~/.bashrc` manually if needed.
-
----
-
 ## Component Details
 
 ### Hadoop
@@ -444,28 +380,6 @@ Remove Hadoop-related lines from `~/.bashrc` manually if needed.
 - Extracted files: ~8 GB
 - HDFS storage: ~2 GB
 - Logs and temp: ~2 GB
-
----
-
-## Tested On
-
-- **WSL2 Ubuntu 22.04 / 24.04**
-- **Windows 11**
-
-
----
-
-## Credits
-
-Installer by [github.com/darshan-gowdaa](https://github.com/darshan-gowdaa)
-
-Star the repo if you find it useful!
-
----
-
-## License
-
-MIT License - Feel free to use and modify
 
 ---
 
@@ -542,6 +456,48 @@ JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-server-start.sh ...
 
 ---
 
+## If Something Fails
+
+Check logs:
+
+```bash
+cat ~/hadoop_install.log
+```
+
+Restart after reboot:
+
+```bash
+~/start-hadoop.sh
+```
+
+Check service status:
+
+```bash
+# From the installer menu, choose option 9
+# Or manually check:
+jps  # Lists all Java processes
+hdfs dfsadmin -report  # HDFS status
+```
+
+Common fixes:
+
+```bash
+# If SSH fails
+sudo service ssh restart
+
+# If MySQL fails (for Hive)
+sudo service mysql restart
+
+# If HDFS is in safe mode
+hdfs dfsadmin -safemode leave
+
+# Force cleanup and restart
+~/stop-hadoop.sh
+~/start-hadoop.sh
+```
+
+---
+
 ## FAQ
 
 **Q: Can I run this on Windows 10?**  
@@ -562,6 +518,41 @@ A: No, this installer supports one version at a time. Uninstall first.
 **Q: Is this production-ready?**  
 A: This is for **learning and development only**. For production, use managed clusters or Docker/Kubernetes.
 
+
+---
+
+## Uninstall
+
+```bash
+~/stop-hadoop.sh
+rm -rf ~/bigdata
+rm ~/.hadoop_install_state
+rm ~/start-hadoop.sh ~/stop-hadoop.sh
+```
+
+Remove Hadoop-related lines from `~/.bashrc` manually if needed.
+
+---
+
+## Tested On
+
+- **WSL2 Ubuntu 22.04 / 24.04**
+- **Windows 11**
+
+
+---
+
+## Credits
+
+Installer by [github.com/darshan-gowdaa](https://github.com/darshan-gowdaa)
+
+Star the repo if you find it useful!
+
+---
+
+## License
+
+MIT License - Feel free to use and modify
 
 ---
 
