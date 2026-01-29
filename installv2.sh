@@ -701,36 +701,8 @@ EOF
     chmod +x "$HOME/.local/bin/eclipse-hadoop.sh"
     sudo ln -sf "$HOME/.local/bin/eclipse-hadoop.sh" /usr/local/bin/eclipse-hadoop
 
-    cat >"$HOME/ECLIPSE_MAPREDUCE_GUIDE.txt" <<'GUIDE'
-=================================================================
-  Eclipse MapReduce Development Guide (No Plugins Required)
-=================================================================
-
-QUICK START:
-1. Launch Eclipse: eclipse-hadoop (or: eclipse &)
-2. Create New Java Project: File → New → Java Project
-3. Add Hadoop Dependencies:
-   - Maven: Convert to Maven project, add hadoop-client 3.4.2
-   - Manual: Add JARs from ~/bigdata/hadoop-3.4.2/share/hadoop/
-4. Write MapReduce code in src/
-5. Export: Runnable JAR File with dependencies
-6. Run: hadoop jar ~/wordcount.jar wordcount.WordCount /input /output
-
-IMPORTANT:
-✓ Maven manages dependencies automatically
-✓ NO Hadoop Eclipse plugins needed
-✓ Export as Runnable JAR includes all dependencies
-✓ Use "hadoop jar" command (not java -jar)
-
-TROUBLESHOOTING:
-• ClassNotFoundException: Check package name
-• JAR fails: Re-export with dependencies
-• GUI issue: Ensure WSLg works (Windows 11)
-=================================================================
-GUIDE
-
     success "Eclipse and Maven installed successfully"
-    info "Launch: eclipse-hadoop | Guide: cat ~/ECLIPSE_MAPREDUCE_GUIDE.txt"
+    info "Launch with: eclipse-hadoop"
     
     mark_done "eclipse_full"
 }
