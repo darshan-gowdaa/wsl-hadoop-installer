@@ -1050,16 +1050,18 @@ EOF
     # Give it a moment to detach
     sleep 2
     success "Eclipse is launching!"
+    info "Opening may take 20-60 seconds. Please be patient..."
     
     echo -e "\n${YELLOW}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║  IMPORTANT: To see your project/code in Eclipse            ║${NC}"
+    echo -e "${YELLOW}║  IMPORTANT: EVERY TIME YOU OPEN ECLIPSE                    ║${NC}"
     echo -e "${YELLOW}╚════════════════════════════════════════════════════════════╝${NC}"
-    echo -e "1. In Eclipse, go to: ${BOLD}File > Open Projects from File System...${NC}"
+    echo -e "You must import your project to see it:"
+    echo -e "1. Go to: ${BOLD}File > Open Projects from File System...${NC}"
     echo -e "2. Click ${BOLD}'Directory'${NC} and navigate to:"
     echo -e "   ${CYAN}$proj_dir${NC}"
     echo -e "3. Click ${BOLD}'Finish'${NC}"
     
-    echo -e "${YELLOW}Navigate to:${NC}"
+    echo -e "${YELLOW}Then navigate to:${NC}"
     echo -e "${BOLD} > $proj_name > src > (default package) > $class_name.java${NC}"
     read -p "Press Enter to return to menu..."
 }
@@ -1159,9 +1161,9 @@ show_menu() {
     # Shortcut status check
     local shortcut_status
     if [ -f "/usr/local/bin/dg-script.sh" ]; then
-        shortcut_status="${GREEN}✓${NC}"
+        shortcut_status=$(echo -e "${GREEN}✓${NC}")
     else
-        shortcut_status="${YELLOW}○${NC}"
+        shortcut_status=$(echo -e "${YELLOW}○${NC}")
     fi
     
     echo -e " ${BOLD}${MAGENTA}COMPONENTS:${NC}\n"
