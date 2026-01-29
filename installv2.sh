@@ -115,6 +115,33 @@ preflight_checks() {
     echo -e "${GREEN}   Hadoop WSL Installer - github.com/darshan-gowdaa  ${NC}"
     echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}\n"
     
+    # Configure DNS with intelligent fallback
+    info "Configuring DNS servers..."
+    
+    # Test if Cloudflare DNS is reachable
+    if timeout 2 ping -c 1 1.1.1.1 &>/dev/null; then
+        info "Cloudflare DNS (1.1.1.1) is reachable"
+        cat | sudo tee /etc/resolv.conf > /dev/null <<EOF
+nameserver 1.1.1.1
+nameserver 1.0.0.1
+EOF
+        sudo chattr +i /etc/resolv.conf 2>/dev/null || true
+        success "DNS configured: Cloudflare (1.1.1.1, 1.0.0.1)"
+    # Test if Google DNS is reachable
+    elif timeout 2 ping -c 1 8.8.8.8 &>/dev/null; then
+        info "Google DNS (8.8.8.8) is reachable"
+        cat | sudo tee /etc/resolv.conf > /dev/null <<EOF
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+EOF
+        sudo chattr +i /etc/resolv.conf 2>/dev/null || true
+        success "DNS configured: Google (8.8.8.8, 8.8.4.4)"
+    else
+        warn "External DNS servers blocked - using default college/network DNS"
+        sudo chattr -i /etc/resolv.conf 2>/dev/null || true
+        info "DNS will be auto-configured by WSL"
+    fi
+    
     # Check required commands
     info "Checking system requirements..."
     check_command "wget" "wget"
@@ -564,6 +591,56 @@ install_eclipse() {
 
     echo -e "\n${BOLD}Installing Eclipse IDE for MapReduce Development${NC}"
     
+    # Check if systemd is running, enable if needed
+    if ! systemctl is-system-running &>/dev/null && ! grep -q "systemd=true" /etc/wsl.conf 2>/dev/null; then
+        info "Enabling systemd in WSL..."
+        sudo bash -c 'cat >> /etc/wsl.conf <<WSLCONF
+[boot]
+systemd=true
+WSLCONF'
+        success "Systemd configuration added to /etc/wsl.conf"
+        echo ""
+        echo -e "${YELLOW}╔════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║  WSL RESTART REQUIRED - Eclipse installation paused      ║${NC}"
+        echo -e "${YELLOW}╚════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${BOLD}To continue Eclipse installation:${NC}"
+        echo -e "  1. Open ${CYAN}PowerShell or CMD${NC} on Windows"
+        echo -e "  2. Run: ${CYAN}wsl --shutdown${NC}"
+        echo -e "  3. Restart WSL (open Ubuntu/WSL again)"
+        echo -e "  4. Re-run this script and select option 6 (Eclipse) again"
+        echo ""
+        echo -e "${GREEN}The script will detect that systemd is enabled and continue automatically.${NC}"
+        echo ""
+        exit 0
+    fi
+    
+    # Verify systemd is actually running
+    if ! systemctl is-system-running &>/dev/null; then
+        error "Systemd is configured but not running. Please restart WSL: wsl --shutdown"
+    fi
+    
+    info "Systemd is active"
+    
+    # Install snapd
+    if ! command -v snap &>/dev/null; then
+        if ! execute_with_spinner "Installing snapd" sudo apt-get install -y snapd -qq; then
+            error "snapd installation failed"
+        fi
+        
+        # Enable and start snapd service
+        if ! execute_with_spinner "Enabling snapd service" sudo systemctl enable --now snapd; then
+            error "Failed to enable snapd service"
+        fi
+        
+        if ! execute_with_spinner "Enabling snapd.socket" sudo systemctl enable --now snapd.socket; then
+            warn "snapd.socket failed to enable"
+        fi
+        
+        # Wait for snapd to be ready
+        sleep 3
+    fi
+    
     # Install Maven via apt
     if ! command -v mvn &>/dev/null; then
         if ! execute_with_spinner "Installing Maven" sudo apt-get install -y maven -qq; then
@@ -628,82 +705,25 @@ EOF
 =================================================================
 
 QUICK START:
-------------
-1. Launch Eclipse with Hadoop environment:
-   $ eclipse-hadoop
-   
-   (Or just: eclipse &)
+1. Launch Eclipse: eclipse-hadoop (or: eclipse &)
+2. Create New Java Project: File → New → Java Project
+3. Add Hadoop Dependencies:
+   - Maven: Convert to Maven project, add hadoop-client 3.4.2
+   - Manual: Add JARs from ~/bigdata/hadoop-3.4.2/share/hadoop/
+4. Write MapReduce code in src/
+5. Export: Runnable JAR File with dependencies
+6. Run: hadoop jar ~/wordcount.jar wordcount.WordCount /input /output
 
-2. Create New Java Project:
-   File → New → Java Project
-   - Project name: WordCount
-   - JRE: Select "JavaSE-11"
-   - Click "Finish"
-
-3. Add Hadoop Dependencies (Choose ONE method):
-
-   METHOD A: Using Maven (Easier!, but not recommended by the teacher)
-   ---------------------------------------------
-   Right-click project → Configure → Convert to Maven Project
-   
-   Open pom.xml and add inside <project>:
-   
-   <dependencies>
-       <dependency>
-           <groupId>org.apache.hadoop</groupId>
-           <artifactId>hadoop-client</artifactId>
-           <version>3.4.2</version>
-       </dependency>
-   </dependencies>
-   
-   Save → Right-click project → Maven → Update Project
-   
-   METHOD B: Manual JARs (Followed by the TEACHER)
-   ------------------------------------
-   Right-click project → Build Path → Configure Build Path
-   → Libraries → Add External JARs
-   
-   Add ALL JARs from:
-   ~/bigdata/hadoop-3.4.2/share/hadoop/common/*.jar
-   ~/bigdata/hadoop-3.4.2/share/hadoop/mapreduce/*.jar
-   ~/bigdata/hadoop-3.4.2/share/hadoop/hdfs/*.jar
-   ~/bigdata/hadoop-3.4.2/share/hadoop/yarn/*.jar
-   
-   Click "Apply and Close"
-
-4. Write Your MapReduce Code:
-   Create: src/wordcount/WordCount.java
-   (Use standard MapReduce template)
-
-5. Export JAR:
-   Right-click project → Export → Java → Runnable JAR File
-   - Launch configuration: Choose "WordCount"
-   - Export destination: /home/$USER/wordcount.jar
-   - Library handling: "Extract required libraries into generated JAR"
-   - Click "Finish"
-
-6. Run on Hadoop:
-   $ hdfs dfs -mkdir -p /input
-   $ hdfs dfs -put input.txt /input/
-   $ hadoop jar ~/wordcount.jar wordcount.WordCount /input /output
-   $ hdfs dfs -cat /output/part-r-00000
-
-IMPORTANT NOTES:
-----------------
-✓ Maven method is cleaner and manages dependencies automatically
-✓ NO Hadoop Eclipse plugins needed - plugins are outdated/buggy
-✓ This is the exam-safe, production-standard method
-✓ Export as "Runnable JAR" includes all dependencies
-✓ Use "hadoop jar" command to run (not java -jar)
-✓ Package name in command must match Java code
+IMPORTANT:
+✓ Maven manages dependencies automatically
+✓ NO Hadoop Eclipse plugins needed
+✓ Export as Runnable JAR includes all dependencies
+✓ Use "hadoop jar" command (not java -jar)
 
 TROUBLESHOOTING:
-----------------
-• ClassNotFoundException: Check package name in command
-• JAR runs locally but not on Hadoop: Re-export with dependencies
-• GUI doesn't open: Ensure WSLg is working (Windows 11 required)
-• Maven not found: Restart Eclipse after installation
-
+• ClassNotFoundException: Check package name
+• JAR fails: Re-export with dependencies
+• GUI issue: Ensure WSLg works (Windows 11)
 =================================================================
 GUIDE
 
