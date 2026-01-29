@@ -804,9 +804,23 @@ STOP
 create_eclipse_project() {
     echo -e "\n${BOLD}Create Eclipse Project for Hadoop${NC}"
     
-    # Get Project Name
-    read -p "Enter project name (default: WordCountProject): " proj_name
-    proj_name=${proj_name:-WordCountProject}
+    # Get Project Name (Mandatory)
+    while true; do
+        read -p "Enter project name: " proj_name
+        if [ -n "$proj_name" ]; then
+            break
+        fi
+        echo -e "${RED}Error: Project name cannot be empty.${NC}"
+    done
+
+    # Get Class Name (Mandatory)
+    while true; do
+        read -p "Enter class name (e.g. WordCount): " class_name
+        if [ -n "$class_name" ]; then
+            break
+        fi
+        echo -e "${RED}Error: Class name cannot be empty.${NC}"
+    done
     
     local workspace_dir="$HOME/eclipse-workspace"
     local proj_dir="$workspace_dir/$proj_name"
@@ -876,17 +890,78 @@ EOF
     done
     
     echo "</classpath>" >> "$proj_dir/.classpath"
+
+    # Create Java File Template
+    local java_file="$proj_dir/src/$class_name.java"
+    cat > "$java_file" <<EOF
+import java.io.IOException;
+import java.util.StringTokenizer;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+
+public class $class_name {
+
+    public static class TokenizerMapper extends Mapper<Object, Text, Text, IntWritable>{
+        private final static IntWritable one = new IntWritable(1);
+        private Text word = new Text();
+
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+            StringTokenizer itr = new StringTokenizer(value.toString());
+            while (itr.hasMoreTokens()) {
+                word.set(itr.nextToken());
+                context.write(word, one);
+            }
+        }
+    }
+
+    public static class IntSumReducer extends Reducer<Text,IntWritable,Text,IntWritable> {
+        private IntWritable result = new IntWritable();
+
+        public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
+            int sum = 0;
+            for (IntWritable val : values) {
+                sum += val.get();
+            }
+            result.set(sum);
+            context.write(key, result);
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        Configuration conf = new Configuration();
+        Job job = Job.getInstance(conf, "$class_name");
+        job.setJarByClass($class_name.class);
+        job.setMapperClass(TokenizerMapper.class);
+        job.setCombinerClass(IntSumReducer.class);
+        job.setReducerClass(IntSumReducer.class);
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(IntWritable.class);
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
+}
+EOF
     
     success "Project '$proj_name' created successfully!"
+    info "Created class: $class_name.java"
     info "Location: $proj_dir"
     info "Launching Eclipse..."
     
-    # Launch Eclipse with the workspace
-    nohup eclipse -data "$workspace_dir" >/dev/null 2>&1 &
+    # Launch Eclipse with the workspace AND the file open
+    # We use the full path to the java file to open it directly
+    nohup eclipse -data "$workspace_dir" "$java_file" >/dev/null 2>&1 &
     
     # Give it a moment to detach
     sleep 2
-    success "Eclipse launched!"
+    success "Eclipse launched with $class_name.java open!"
     read -p "Press Enter to return to menu..."
 }
 
