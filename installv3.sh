@@ -20,6 +20,8 @@ LOG_FILE="$HOME/hadoop_install.log"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 BOLD='\033[1m'
@@ -181,9 +183,10 @@ check_command() {
 
 preflight_checks() {
     clear
-    echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}   Hadoop WSL Installer v3 - Github.com/Darshan-Gowdaa  ${NC}"
-    echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}\n"
+    echo -e "\n${CYAN}════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${MAGENTA}             Hadoop Ecosystem Installer v3              ${NC}"
+    echo -e "${BLUE}               github.com/darshan-gowdaa                ${NC}"
+    echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}\n"
     
     # Configure DNS with intelligent fallback
     info "Configuring DNS servers..."
@@ -786,28 +789,8 @@ STOP
     success "Helper scripts created"
 }
 
-install_full_stack() {
-    echo -e "\n${BOLD}${GREEN}Installing Full Hadoop Ecosystem...${NC}\n"
-    info "This will install: Hadoop, Spark, Kafka, Hive, and Pig"
-    read -p "Continue? (y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        return
-    fi
-    
-    install_system_deps
-    install_hadoop
-    install_spark
-    install_kafka
-    install_pig
-    install_hive
-    setup_environment
-    create_scripts
-    
-    success "Full Stack Installation Complete!"
-    echo -e "${CYAN}Next Steps: source ~/.bashrc, then run ~/start-hadoop.sh${NC}"
-    read -p "Press Enter to continue..."
-}
+
+
 
 show_installation_info() {
     clear
@@ -856,10 +839,10 @@ get_install_status() {
 
 show_menu() {
     clear
-    echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║        Hadoop Ecosystem Installer v3 - Optimized              ║${NC}"
-    echo -e "${GREEN}║        github.com/darshan-gowdaa                               ║${NC}"
-    echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}\n"
+    echo -e "\n${CYAN}════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${MAGENTA}             Hadoop Ecosystem Installer v3              ${NC}"
+    echo -e "${BLUE}               github.com/darshan-gowdaa                ${NC}"
+    echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}\n"
     
     # Installation status
     local hadoop_status=$(get_install_status "hadoop_full")
@@ -869,27 +852,22 @@ show_menu() {
     local hive_status=$(get_install_status "hive_full")
     local eclipse_status=$(get_install_status "eclipse_full")
     
-    echo -e "${CYAN}${BOLD}COMPONENT INSTALLATION${NC}"
-    echo -e "  ${BOLD}1)${NC} $hadoop_status Hadoop ${HADOOP_VERSION}          ${YELLOW}[Core: HDFS + YARN + MapReduce]${NC}"
-    echo -e "  ${BOLD}2)${NC} $spark_status Spark ${SPARK_VERSION}           ${YELLOW}[Analytics Engine]${NC}"
-    echo -e "  ${BOLD}3)${NC} $kafka_status Kafka ${KAFKA_VERSION}           ${YELLOW}[Stream Processing]${NC}"
-    echo -e "  ${BOLD}4)${NC} $pig_status Pig ${PIG_VERSION}              ${YELLOW}[Data Flow Scripting - Beta]${NC}"
-    echo -e "  ${BOLD}5)${NC} $hive_status Hive ${HIVE_VERSION}            ${YELLOW}[SQL on Hadoop - Beta]${NC}"
-    echo -e "  ${BOLD}6)${NC} $eclipse_status Eclipse IDE              ${YELLOW}[MapReduce Development]${NC}"
-    echo ""
-    echo -e "${CYAN}${BOLD}QUICK INSTALL${NC}"
-    echo -e "  ${BOLD}A)${NC} Full Stack                  ${YELLOW}[Hadoop + Spark + Kafka + Hive + Pig]${NC}"
-    echo ""
-    echo -e "${CYAN}${BOLD}SERVICE MANAGEMENT${NC}"
+    echo -e " ${BOLD}${CYAN}COMPONENTS:${NC}\n"
+    printf "  ${BOLD}1)${NC} %-30s %s\n" "Hadoop ${HADOOP_VERSION}" "$hadoop_status"
+    printf "  ${BOLD}2)${NC} %-30s %s\n" "Spark ${SPARK_VERSION}" "$spark_status"
+    printf "  ${BOLD}3)${NC} %-30s %s\n" "Kafka ${KAFKA_VERSION}" "$kafka_status"
+    printf "  ${BOLD}4)${NC} %-30s %s\n" "Pig ${PIG_VERSION}" "$pig_status"
+    printf "  ${BOLD}5)${NC} %-30s %s\n" "Hive ${HIVE_VERSION}" "$hive_status"
+    printf "  ${BOLD}6)${NC} %-30s %s\n" "Eclipse IDE" "$eclipse_status"
+    
+    echo -e "\n ${BOLD}${CYAN}MANAGEMENT:${NC}\n"
     echo -e "  ${BOLD}7)${NC} Start All Services"
     echo -e "  ${BOLD}8)${NC} Stop All Services"
-    echo -e "  ${BOLD}9)${NC} Check Status & Health"
-    echo ""
-    echo -e "${CYAN}${BOLD}INFORMATION${NC}"
-    echo -e "  ${BOLD}I)${NC} Show Installation Info"
+    echo -e "  ${BOLD}9)${NC} Check System Status"
+    
+    echo -e "\n ${BOLD}${CYAN}SYSTEM:${NC}\n"
+    echo -e "  ${BOLD}I)${NC} Installation Info"
     echo -e "  ${BOLD}0)${NC} Exit"
-    echo ""
-    echo -e "${BOLD}Legend:${NC} ${GREEN}✓${NC}=Installed  ${YELLOW}○${NC}=Not Installed"
     echo ""
 }
 
@@ -1109,9 +1087,7 @@ main() {
         check_status
         read -p "Press Enter to continue..."
         ;;
-    A)
-        install_full_stack
-        ;;
+
     I)
         show_installation_info
         ;;
