@@ -1106,40 +1106,7 @@ EOF
 
 
 
-show_installation_info() {
-    clear
-    echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║                    Installation Information                   ║${NC}"
-    echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}\n"
-    
-    echo -e "${BOLD}Installed Components:${NC}"
-    local components=("hadoop_full:Hadoop ${HADOOP_VERSION}" "spark_full:Spark ${SPARK_VERSION}" "kafka_full:Kafka ${KAFKA_VERSION}" "pig_full:Pig ${PIG_VERSION}" "hive_full:Hive ${HIVE_VERSION}" "eclipse_full:Eclipse IDE")
-    for comp in "${components[@]}"; do
-        IFS=':' read -r key label <<< "$comp"
-        echo -e "  $(get_install_status "$key") $label"
-    done
-    
-    echo -e "\n${BOLD}Installation Directory:${NC} $INSTALL_DIR"
-    
-    echo -e "\n${BOLD}Helper Scripts:${NC}"
-    [ -f "$HOME/start-hadoop.sh" ] && echo -e "  ${GREEN}✓${NC} ~/start-hadoop.sh" || echo -e "  ${YELLOW}○${NC} ~/start-hadoop.sh"
-    [ -f "$HOME/stop-hadoop.sh" ] && echo -e "  ${GREEN}✓${NC} ~/stop-hadoop.sh" || echo -e "  ${YELLOW}○${NC} ~/stop-hadoop.sh"
-    
-    echo -e "\n${BOLD}System:${NC} $(free -m 2>/dev/null | awk '/^Mem:/{print int($2/1024)}')GB RAM, $(df -BG "$HOME" 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/G//')GB Free"
-    
-    if [ -d "$INSTALL_DIR/hadoop" ]; then
-        echo -e "\n${BOLD}Web Interfaces:${NC}"
-        echo -e "  HDFS: ${CYAN}http://localhost:9870${NC}  YARN: ${CYAN}http://localhost:8088${NC}"
-    fi
-    
-    echo -e "\n${BOLD}Quick Commands:${NC}"
-    echo -e "  ${CYAN}~/start-hadoop.sh${NC}  |  ${CYAN}~/stop-hadoop.sh${NC}  |  ${CYAN}hdfs dfs -ls /${NC}"
-    
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-# ==================== MENU SYSTEM ====================
+# ==================== MENU SYSTEM ======================================
 
 get_install_status() {
     local component=$1
@@ -1315,11 +1282,10 @@ show_menu() {
     echo -e "  ${BOLD}${CYAN}1)${NC} Hadoop ${HADOOP_VERSION}           $hadoop_status     ${BOLD}${CYAN}7)${NC} Start All Services"
     echo -e "  ${BOLD}${CYAN}2)${NC} Spark ${SPARK_VERSION}            $spark_status     ${BOLD}${CYAN}8)${NC} Stop All Services"
     echo -e "  ${BOLD}${CYAN}3)${NC} Kafka ${KAFKA_VERSION}            $kafka_status     ${BOLD}${CYAN}9)${NC} Check System Status"
-    echo -e "  ${BOLD}${CYAN}4)${NC} Pig ${PIG_VERSION}              $pig_status     ${BOLD}${CYAN}P)${NC} Create Eclipse Project"
+    echo -e "  ${BOLD}${CYAN}4)${NC} Pig ${PIG_VERSION}             $pig_status     ${BOLD}${CYAN}P)${NC} Create Eclipse Project"
     echo -e "  ${BOLD}${CYAN}5)${NC} Hive ${HIVE_VERSION}             $hive_status"
-    echo -e "  ${BOLD}${CYAN}6)${NC} Eclipse IDE            $eclipse_status     ${BOLD}${MAGENTA}SYSTEM${NC}"
+    echo -e "  ${BOLD}${CYAN}6)${NC} Eclipse IDE            $eclipse_status          ${BOLD}${MAGENTA}SYSTEM${NC}"
     echo -e "  ${BOLD}${CYAN}A)${NC} ${BOLD}Install ALL${NC}                      ${CYAN}──────${NC}"
-    echo -e "                                    ${BOLD}${CYAN}I)${NC} Installation Info"
     echo -e "                                    ${BOLD}${CYAN}U)${NC} Update System"
     echo -e "                                    ${BOLD}${CYAN}D)${NC} Uninstall Components"
     echo -e "                                    ${BOLD}${CYAN}S)${NC} Script Shortcut  $shortcut_status"
@@ -1508,7 +1474,7 @@ main() {
         read -p "Select option: " choice
         
         # Validate input (allow numbers and letters A, I, P, S, U, D)
-        if [[ ! "$choice" =~ ^[0-9AaDdIiPpSsUu]+$ ]]; then
+        if [[ ! "$choice" =~ ^[0-9AaDdPpSsUu]+$ ]]; then
             echo -e "${RED}Invalid option. Please enter a valid option.${NC}"
             sleep 2
             continue
@@ -1528,7 +1494,6 @@ main() {
             7) start_services; read -p "Press Enter to continue..." ;;
             8) stop_services; read -p "Press Enter to continue..." ;;
             9) check_status; read -p "Press Enter to continue..." ;;
-            I) show_installation_info ;;
             P) create_eclipse_project ;;
             S) create_shortcut ;;
             U) update_system ;;
