@@ -676,16 +676,7 @@ configure_eclipse_user_library() {
     done
     xml_content="${xml_content}</userlibrary>"
 
-    # Escape XML for properties file (key=value)
-    # 1. Escape backslashes
-    # 2. Escape newlines (though we have none here)
-    # 3. Escape colons and equals signs (standard properties file)
-    # However, Eclipse prefs often store raw XML if it's on one line, but let's be safe and just put it as one line.
-    
-    # Actually, Eclipse stores it as: org.eclipse.jdt.core.userLibrary.Hadoop=<?xml ...
-    # We just need to make sure we append or replace that specific line.
-    
-    # Remove existing entry if present
+    # Update prefs file
     touch "$prefs_file"
     sed -i '/org.eclipse.jdt.core.userLibrary.Hadoop/d' "$prefs_file"
     
@@ -696,8 +687,6 @@ configure_eclipse_user_library() {
 }
 
 install_eclipse() {
-    # Always run configuration to ensure wrapper/prefs are current
-    # skip_if_installed removed to allow repair/update
 
     echo -e "\n${BOLD}Installing Eclipse IDE for MapReduce Development${NC}"
     
@@ -782,8 +771,7 @@ WSLCONF'
     local eclipse_config="$HOME/.hadoop-eclipse-config"
     mkdir -p "$eclipse_config/.settings"
     
-    # Pre-seed preference to suppress workspace dialog
-    # org.eclipse.ui.ide.prefs
+    # Pre-seed workspace preferences
     cat > "$eclipse_config/.settings/org.eclipse.ui.ide.prefs" <<EOF
 MAX_RECENT_WORKSPACES=10
 RECENT_WORKSPACES=$HOME/eclipse-workspace
@@ -796,8 +784,7 @@ EOF
     # Configure User Library
     configure_eclipse_user_library
 
-    # Pre-seed Java Compiler preferences to default to Java 11 (instead of 21)
-    # org.eclipse.jdt.core.prefs
+    # Pre-seed Java 1.8 compiler defaults
     cat > "$eclipse_config/.settings/org.eclipse.jdt.core.prefs" <<EOF
 org.eclipse.jdt.core.compiler.codegen.targetPlatform=1.8
 org.eclipse.jdt.core.compiler.compliance=1.8
@@ -1273,22 +1260,25 @@ show_menu() {
     fi
 
     echo ""
-    echo -e "  ${BOLD}${MAGENTA}▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄${NC}"
-    echo -e "  ${BOLD}${MAGENTA}█${NC}  ${BOLD}Hadoop Ecosystem Installer v3${NC}    ${BLUE}github.com/darshan-gowdaa${NC}"
-    echo -e "  ${BOLD}${MAGENTA}▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀${NC}"
+    echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
+    echo -e "  ${BOLD}${MAGENTA}  Hadoop Ecosystem Installer v3${NC}   ${BLUE}github.com/darshan-gowdaa${NC}"
+    echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "  ${BOLD}${CYAN}┌─${NC} ${BOLD}${MAGENTA}INSTALL${NC}                       ${BOLD}${CYAN}┌─${NC} ${BOLD}${MAGENTA}SERVICES${NC}"
-    echo -e "  ${CYAN}│${NC}  ${BOLD}1${NC} ▸ Hadoop ${HADOOP_VERSION}       $hadoop_status   ${CYAN}│${NC}  ${BOLD}7${NC} ▸ Start All"
-    echo -e "  ${CYAN}│${NC}  ${BOLD}2${NC} ▸ Spark ${SPARK_VERSION}        $spark_status   ${CYAN}│${NC}  ${BOLD}8${NC} ▸ Stop All"
-    echo -e "  ${CYAN}│${NC}  ${BOLD}3${NC} ▸ Kafka ${KAFKA_VERSION}        $kafka_status   ${CYAN}│${NC}  ${BOLD}9${NC} ▸ System Status"
-    echo -e "  ${CYAN}│${NC}  ${BOLD}4${NC} ▸ Pig ${PIG_VERSION}          $pig_status   ${CYAN}│${NC}  ${BOLD}P${NC} ▸ Eclipse Project"
-    echo -e "  ${CYAN}│${NC}  ${BOLD}5${NC} ▸ Hive ${HIVE_VERSION}         $hive_status   ${CYAN}│${NC}"
-    echo -e "  ${CYAN}│${NC}  ${BOLD}6${NC} ▸ Eclipse IDE        $eclipse_status   ${CYAN}├─${NC} ${BOLD}${MAGENTA}SYSTEM${NC}"
-    echo -e "  ${CYAN}│${NC}  ${BOLD}A${NC} ▸ ${GREEN}Install ALL${NC}              ${CYAN}│${NC}  ${BOLD}U${NC} ▸ Update Packages"
-    echo -e "  ${CYAN}└──────────────────────────${NC}   ${CYAN}│${NC}  ${BOLD}D${NC} ▸ Uninstall"
-    echo -e "                                 ${CYAN}│${NC}  ${BOLD}S${NC} ▸ Script Shortcut  $shortcut_status"
-    echo -e "                                 ${CYAN}│${NC}  ${BOLD}0${NC} ▸ ${RED}Exit${NC}"
-    echo -e "                                 ${CYAN}└──────────────────────────${NC}"
+    echo -e "  ${BOLD}${MAGENTA}COMPONENTS${NC}                          ${BOLD}${MAGENTA}MANAGEMENT & TOOLS${NC}"
+    echo -e "  ${CYAN}──────────${NC}                          ${CYAN}──────────────────${NC}"
+    echo -e "  ${BOLD}${CYAN}1)${NC} Hadoop ${HADOOP_VERSION}           $hadoop_status     ${BOLD}${CYAN}7)${NC} Start All Services"
+    echo -e "  ${BOLD}${CYAN}2)${NC} Spark ${SPARK_VERSION}            $spark_status     ${BOLD}${CYAN}8)${NC} Stop All Services"
+    echo -e "  ${BOLD}${CYAN}3)${NC} Kafka ${KAFKA_VERSION}            $kafka_status     ${BOLD}${CYAN}9)${NC} Check System Status"
+    echo -e "  ${BOLD}${CYAN}4)${NC} Pig ${PIG_VERSION}             $pig_status     ${BOLD}${CYAN}P)${NC} Create Eclipse Project"
+    echo -e "  ${BOLD}${CYAN}5)${NC} Hive ${HIVE_VERSION}             $hive_status"
+    echo -e "  ${BOLD}${CYAN}6)${NC} Eclipse IDE            $eclipse_status        ${BOLD}${MAGENTA}SYSTEM${NC}"
+    echo -e "  ${BOLD}${CYAN}A)${NC} ${BOLD}Install ALL${NC}                      ${CYAN}──────${NC}"
+    echo -e "                                    ${BOLD}${CYAN}U)${NC} Update System"
+    echo -e "                                    ${BOLD}${CYAN}D)${NC} Uninstall Components"
+    echo -e "                                    ${BOLD}${CYAN}S)${NC} Script Shortcut  $shortcut_status"
+    echo -e "                                    ${BOLD}${CYAN}0)${NC} Exit"
+    echo ""
+    echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
     echo ""
 }
 
@@ -1323,6 +1313,7 @@ check_status() {
 
 start_services() {
     echo -e "\n${BOLD}Starting Services...${NC}\n"
+    local start_time=$SECONDS
     
     export HADOOP_HOME="${HADOOP_HOME:-$INSTALL_DIR/hadoop}"
     
@@ -1355,7 +1346,7 @@ start_services() {
     # Wait for HDFS safe mode
     info "Waiting for HDFS to exit safe mode..."
     local attempts=0
-    local max_attempts=120  # Increased to 2 minutes for slow systems
+    local max_attempts=120
     while [ $attempts -lt $max_attempts ]; do
         if "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode get 2>/dev/null | grep -q "OFF"; then
             success "HDFS ready"
@@ -1370,7 +1361,6 @@ start_services() {
         "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode leave &>/dev/null || true
     fi
     
-    # Create HDFS directories using helper function
     setup_hdfs_directories
     
     # Start Hive Metastore if installed
@@ -1396,13 +1386,15 @@ start_services() {
         fi
     fi
     
-    success "Services started successfully"
+    local elapsed=$(( SECONDS - start_time ))
+    success "Services started (${elapsed}s)"
     echo -e "  HDFS: ${CYAN}http://localhost:9870${NC}"
     echo -e "  YARN: ${CYAN}http://localhost:8088${NC}"
 }
 
 stop_services() {
     echo -e "\n${BOLD}Stopping Services...${NC}\n"
+    local start_time=$SECONDS
     
     export HADOOP_HOME="${HADOOP_HOME:-$INSTALL_DIR/hadoop}"
     
@@ -1432,7 +1424,8 @@ stop_services() {
         sleep 1
     fi
     
-    success "All services stopped"
+    local elapsed=$(( SECONDS - start_time ))
+    success "All services stopped (${elapsed}s)"
 }
 
 # ==================== MAIN ====================
@@ -1470,7 +1463,7 @@ main() {
         show_menu
         read -p "Select option: " choice
         
-        # Validate input (allow numbers and letters A, I, P, S, U, D)
+        # Validate input
         if [[ ! "$choice" =~ ^[0-9AaDdPpSsUu]+$ ]]; then
             echo -e "${RED}Invalid option. Please enter a valid option.${NC}"
             sleep 2
