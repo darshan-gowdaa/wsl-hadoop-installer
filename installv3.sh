@@ -1273,11 +1273,6 @@ show_uninstall_menu() {
 
 show_menu() {
     clear
-    echo -e "\n${CYAN}════════════════════════════════════════════════════════════════${NC}"
-    echo -e "${BOLD}${MAGENTA}             Hadoop Ecosystem Installer v3              ${NC}"
-    echo -e "${BLUE}               github.com/darshan-gowdaa                ${NC}"
-    echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}\n"
-    
     # Installation status
     local hadoop_status=$(get_install_status "hadoop_full")
     local spark_status=$(get_install_status "spark_full")
@@ -1293,29 +1288,28 @@ show_menu() {
     else
         shortcut_status=$(echo -e "${YELLOW}○${NC}")
     fi
-    
-    echo -e " ${BOLD}${MAGENTA}COMPONENTS:${NC}\n"
-    printf "  ${BOLD}${CYAN}1)${NC} %-30s %s\n" "Hadoop [HDFS & YARN] ${HADOOP_VERSION}" "$hadoop_status"
-    printf "  ${BOLD}${CYAN}2)${NC} %-30s %s\n" "Spark ${SPARK_VERSION}" "$spark_status"
-    printf "  ${BOLD}${CYAN}3)${NC} %-30s %s\n" "Kafka ${KAFKA_VERSION}" "$kafka_status"
-    printf "  ${BOLD}${CYAN}4)${NC} %-30s %s\n" "Pig ${PIG_VERSION}" "$pig_status"
-    printf "  ${BOLD}${CYAN}5)${NC} %-30s %s\n" "Hive ${HIVE_VERSION}" "$hive_status"
-    printf "  ${BOLD}${CYAN}6)${NC} %-30s %s\n" "Eclipse IDE" "$eclipse_status"
-    
-    echo -e "\n ${BOLD}${MAGENTA}DEVELOPMENT:${NC}\n"
-    printf "  ${BOLD}${CYAN}P)${NC} %-30s\n" "Create Eclipse Project"
-    
-    echo -e "\n ${BOLD}${MAGENTA}MANAGEMENT:${NC}\n"
-    echo -e "  ${BOLD}${CYAN}7)${NC} Start All Services"
-    echo -e "  ${BOLD}${CYAN}8)${NC} Stop All Services"
-    echo -e "  ${BOLD}${CYAN}9)${NC} Check System Status"
-    
-    echo -e "\n ${BOLD}${MAGENTA}SYSTEM:${NC}\n"
-    echo -e "  ${BOLD}${CYAN}I)${NC} Installation Info"
-    echo -e "  ${BOLD}${CYAN}U)${NC} Update System (apt & snap)"
-    echo -e "  ${BOLD}${CYAN}D)${NC} Delete/Uninstall Components"
-    printf "  ${BOLD}${CYAN}S)${NC} %-30s %s\n" "Create Script's Shortcut" "$shortcut_status"
-    echo -e "  ${BOLD}${CYAN}0)${NC} Exit"
+
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${MAGENTA}⬡ Hadoop Ecosystem Installer v3${NC}          ${BLUE}github.com/darshan-gowdaa${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${NC}                                                                      ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${MAGENTA}COMPONENTS${NC}                               ${BOLD}${MAGENTA}MANAGEMENT & TOOLS${NC}          ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${CYAN}──────────${NC}                               ${CYAN}──────────────────${NC}          ${CYAN}║${NC}"
+    printf "${CYAN}║${NC}  ${BOLD}${CYAN}1)${NC} %-24s %b     ${BOLD}${CYAN}7)${NC} %-24s     ${CYAN}║${NC}\n" "Hadoop ${HADOOP_VERSION}" "$hadoop_status" "Start All Services"
+    printf "${CYAN}║${NC}  ${BOLD}${CYAN}2)${NC} %-24s %b     ${BOLD}${CYAN}8)${NC} %-24s     ${CYAN}║${NC}\n" "Spark ${SPARK_VERSION}" "$spark_status" "Stop All Services"
+    printf "${CYAN}║${NC}  ${BOLD}${CYAN}3)${NC} %-24s %b     ${BOLD}${CYAN}9)${NC} %-24s     ${CYAN}║${NC}\n" "Kafka ${KAFKA_VERSION}" "$kafka_status" "Check System Status"
+    printf "${CYAN}║${NC}  ${BOLD}${CYAN}4)${NC} %-24s %b     ${BOLD}${CYAN}P)${NC} %-24s     ${CYAN}║${NC}\n" "Pig ${PIG_VERSION}" "$pig_status" "Create Eclipse Project"
+    printf "${CYAN}║${NC}  ${BOLD}${CYAN}5)${NC} %-24s %b                                      ${CYAN}║${NC}\n" "Hive ${HIVE_VERSION}" "$hive_status"
+    printf "${CYAN}║${NC}  ${BOLD}${CYAN}6)${NC} %-24s %b     ${BOLD}${MAGENTA}SYSTEM${NC}                            ${CYAN}║${NC}\n" "Eclipse IDE" "$eclipse_status"
+    echo -e "${CYAN}║${NC}                                     ${CYAN}──────${NC}                            ${CYAN}║${NC}"
+    printf "${CYAN}║${NC}                                     ${BOLD}${CYAN}I)${NC} %-24s     ${CYAN}║${NC}\n" "Installation Info"
+    printf "${CYAN}║${NC}                                     ${BOLD}${CYAN}U)${NC} %-24s     ${CYAN}║${NC}\n" "Update System"
+    printf "${CYAN}║${NC}                                     ${BOLD}${CYAN}D)${NC} %-24s     ${CYAN}║${NC}\n" "Uninstall Components"
+    printf "${CYAN}║${NC}                                     ${BOLD}${CYAN}S)${NC} %-18s %b   ${CYAN}║${NC}\n" "Script Shortcut" "$shortcut_status"
+    printf "${CYAN}║${NC}                                     ${BOLD}${CYAN}0)${NC} %-24s     ${CYAN}║${NC}\n" "Exit"
+    echo -e "${CYAN}║${NC}                                                                      ${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
