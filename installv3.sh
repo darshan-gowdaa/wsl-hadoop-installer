@@ -40,15 +40,30 @@ is_done() { [ -f "$STATE_FILE" ] && grep -Fxq "$1" "$STATE_FILE" 2>/dev/null; }
 verify_installation() {
     local component=$1
     local check_dir=$2
-    if is_done "$component" && [ ! -d "$check_dir" ]; then
-        warn "$component marked as installed but files missing — will reinstall"
-        sed -i "/^${component}$/d" "$STATE_FILE"
+    local needs_bin=${3:-true}
+    
+    if is_done "$component"; then
+        if [ "$needs_bin" = true ] && { [ ! -d "$check_dir" ] || [ ! -d "$check_dir/bin" ]; }; then
+            warn "$component marked as installed but files are missing/incomplete. Reinstalling..."
+            sed -i "/^${component}$/d" "$STATE_FILE"
+        elif [ "$needs_bin" = false ] && [ ! -d "$check_dir" ] && [ ! -f "$check_dir" ]; then
+            warn "$component marked as installed but not found. Reinstalling..."
+            sed -i "/^${component}$/d" "$STATE_FILE"
+        fi
     fi
 }
 
 skip_if_installed() {
     local component=$1
     local message=$2
+    local check_dir=$3
+    local needs_bin=${4:-true}
+    
+    # Do a real-time verification before trusting the state file
+    if [ -n "$check_dir" ]; then
+        verify_installation "$component" "$check_dir" "$needs_bin"
+    fi
+    
     if is_done "$component"; then
         info "$message already installed"
         return 0
@@ -274,7 +289,7 @@ preflight_checks() {
 # ==================== INSTALLATION FUNCTIONS ====================
 
 install_system_deps() {
-    skip_if_installed "system_setup" "System dependencies" && return
+    skip_if_installed "system_setup" "System dependencies" "/usr/lib/jvm/java-11-openjdk-amd64" "false" && return
     
     echo -e "\n${BOLD}Installing System Dependencies${NC}"
     
@@ -331,7 +346,7 @@ EOF
 }
 
 install_hadoop() {
-    skip_if_installed "hadoop_full" "Hadoop" && return
+    skip_if_installed "hadoop_full" "Hadoop" "$INSTALL_DIR/hadoop-${HADOOP_VERSION}" "true" && return
     
     echo -e "\n${BOLD}Installing Hadoop ${HADOOP_VERSION}${NC}"
     
@@ -425,7 +440,7 @@ EOF
 }
 
 install_spark() {
-    skip_if_installed "spark_full" "Spark" && return
+    skip_if_installed "spark_full" "Spark" "$INSTALL_DIR/spark-${SPARK_VERSION}-bin-hadoop3" "true" && return
     
     echo -e "\n${BOLD}Installing Spark ${SPARK_VERSION}${NC}"
     
@@ -461,7 +476,7 @@ EOF
 }
 
 install_kafka() {
-    skip_if_installed "kafka_full" "Kafka" && return
+    skip_if_installed "kafka_full" "Kafka" "$INSTALL_DIR/kafka_2.13-${KAFKA_VERSION}" "true" && return
     
     echo -e "\n${BOLD}Installing Kafka ${KAFKA_VERSION}${NC}"
     
@@ -527,7 +542,7 @@ EOF
 }
 
 install_pig() {
-    skip_if_installed "pig_full" "Pig" && return
+    skip_if_installed "pig_full" "Pig" "$INSTALL_DIR/pig-${PIG_VERSION}" "true" && return
     
     echo -e "\n${BOLD}Installing Pig ${PIG_VERSION}${NC}"
     
@@ -567,7 +582,7 @@ install_pig() {
 }
 
 install_hive() {
-    skip_if_installed "hive_full" "Hive" && return
+    skip_if_installed "hive_full" "Hive" "$INSTALL_DIR/apache-hive-${HIVE_VERSION}-bin" "true" && return
     
     echo -e "\n${BOLD}Installing Hive ${HIVE_VERSION}${NC}"
     
@@ -833,7 +848,7 @@ EOF
 }
 
 setup_environment() {
-    skip_if_installed "env_setup" "Environment" && return
+    skip_if_installed "env_setup" "Environment" "$HOME/.bashrc" "false" && return
     
     echo -e "\n${BOLD}Configuring Environment${NC}"
     
