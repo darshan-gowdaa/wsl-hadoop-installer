@@ -138,7 +138,9 @@ check_service_port() {
 run_install_workflow() {
     local component_name=$1
     shift
-    "$@"
+    for cmd in "$@"; do
+        "$cmd"
+    done
     success "$component_name installed"
     echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
     read -p "Press Enter to continue..."
@@ -1196,6 +1198,79 @@ update_system() {
     read -p "Press Enter to continue..."
 }
 
+uninstall_component() {
+    local name=$1
+    local dir=$2
+    local symlink=$3
+    local state_key=$4
+    
+    echo -e "\n${BOLD}Uninstalling ${name}...${NC}"
+    
+    if [ -d "$dir" ]; then
+        execute_with_spinner "Removing directory" rm -rf "$dir"
+    fi
+    
+    if [ -d "$INSTALL_DIR" ] && [ -n "$symlink" ] && [ -L "$INSTALL_DIR/$symlink" ]; then
+        rm -f "$INSTALL_DIR/$symlink"
+    fi
+    
+    sed -i "/^${state_key}$/d" "$STATE_FILE" 2>/dev/null || true
+    
+    success "$name uninstalled successfully."
+}
+
+show_uninstall_menu() {
+    while true; do
+        clear
+        echo -e "\n${CYAN}════════════════════════════════════════════════════════════════${NC}"
+        echo -e "${BOLD}${MAGENTA}             Uninstall Components                       ${NC}"
+        echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}\n"
+        
+        echo -e "  ${BOLD}${CYAN}1)${NC} Uninstall Hadoop [HDFS & YARN]"
+        echo -e "  ${BOLD}${CYAN}2)${NC} Uninstall Spark"
+        echo -e "  ${BOLD}${CYAN}3)${NC} Uninstall Kafka"
+        echo -e "  ${BOLD}${CYAN}4)${NC} Uninstall Pig"
+        echo -e "  ${BOLD}${CYAN}5)${NC} Uninstall Hive"
+        echo -e "  ${BOLD}${CYAN}6)${NC} Uninstall Eclipse IDE"
+        echo -e "  ${BOLD}${CYAN}A)${NC} Uninstall ALL Components"
+        echo -e "  ${BOLD}${CYAN}B)${NC} Back to Main Menu\n"
+        
+        read -p "Select component to uninstall: " uchoice
+        uchoice=$(echo "$uchoice" | tr '[:lower:]' '[:upper:]')
+        
+        case $uchoice in
+            1) uninstall_component "Hadoop" "$INSTALL_DIR/hadoop-${HADOOP_VERSION}" "hadoop" "hadoop_full"; sleep 2 ;;
+            2) uninstall_component "Spark" "$INSTALL_DIR/spark-${SPARK_VERSION}-bin-hadoop3" "spark" "spark_full"; sleep 2 ;;
+            3) uninstall_component "Kafka" "$INSTALL_DIR/kafka_2.13-${KAFKA_VERSION}" "kafka" "kafka_full"; sleep 2 ;;
+            4) uninstall_component "Pig" "$INSTALL_DIR/pig-${PIG_VERSION}" "pig" "pig_full"; sleep 2 ;;
+            5) uninstall_component "Hive" "$INSTALL_DIR/apache-hive-${HIVE_VERSION}-bin" "hive" "hive_full"; sleep 2 ;;
+            6) 
+                execute_with_spinner "Removing Eclipse Snap" sudo snap remove eclipse
+                rm -rf "$HOME/.hadoop-eclipse-config" "$HOME/.local/bin/eclipse-hadoop.sh"
+                sed -i "/^eclipse_full$/d" "$STATE_FILE" 2>/dev/null || true
+                success "Eclipse IDE uninstalled."
+                sleep 2
+                ;;
+            A)
+                echo -e "\n${RED}${BOLD}Uninstalling ALL components...${NC}"
+                uninstall_component "Hadoop" "$INSTALL_DIR/hadoop-${HADOOP_VERSION}" "hadoop" "hadoop_full"
+                uninstall_component "Spark" "$INSTALL_DIR/spark-${SPARK_VERSION}-bin-hadoop3" "spark" "spark_full"
+                uninstall_component "Kafka" "$INSTALL_DIR/kafka_2.13-${KAFKA_VERSION}" "kafka" "kafka_full"
+                uninstall_component "Pig" "$INSTALL_DIR/pig-${PIG_VERSION}" "pig" "pig_full"
+                uninstall_component "Hive" "$INSTALL_DIR/apache-hive-${HIVE_VERSION}-bin" "hive" "hive_full"
+                execute_with_spinner "Removing Eclipse Snap" sudo snap remove eclipse &>/dev/null || true
+                rm -rf "$HOME/.hadoop-eclipse-config" "$HOME/.local/bin/eclipse-hadoop.sh"
+                rm -f "$STATE_FILE"
+                success "All components uninstalled successfully."
+                sleep 3
+                return
+                ;;
+            B) return ;;
+            *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
 show_menu() {
     clear
     echo -e "\n${CYAN}════════════════════════════════════════════════════════════════${NC}"
@@ -1238,6 +1313,7 @@ show_menu() {
     echo -e "\n ${BOLD}${MAGENTA}SYSTEM:${NC}\n"
     echo -e "  ${BOLD}${CYAN}I)${NC} Installation Info"
     echo -e "  ${BOLD}${CYAN}U)${NC} Update System (apt & snap)"
+    echo -e "  ${BOLD}${CYAN}D)${NC} Delete/Uninstall Components"
     printf "  ${BOLD}${CYAN}S)${NC} %-30s %s\n" "Create Script's Shortcut" "$shortcut_status"
     echo -e "  ${BOLD}${CYAN}0)${NC} Exit"
     echo ""
@@ -1417,8 +1493,8 @@ main() {
         show_menu
         read -p "Select option: " choice
         
-        # Validate input (allow numbers and letters A, I, P, S, U)
-        if [[ ! "$choice" =~ ^[0-9AaIiPpSsUu]+$ ]]; then
+        # Validate input (allow numbers and letters A, I, P, S, U, D)
+        if [[ ! "$choice" =~ ^[0-9AaDdIiPpSsUu]+$ ]]; then
             echo -e "${RED}Invalid option. Please enter a valid option.${NC}"
             sleep 2
             continue
@@ -1478,6 +1554,9 @@ main() {
         ;;
     U)
         update_system
+        ;;
+    D)
+        show_uninstall_menu
         ;;
     0)
         echo -e "\n${GREEN}Goodbye! :) | Star the repo if you like it!${NC}\n"
