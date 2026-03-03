@@ -1284,7 +1284,7 @@ show_menu() {
     echo -e "  ${BOLD}${CYAN}3)${NC} Kafka ${KAFKA_VERSION}            $kafka_status     ${BOLD}${CYAN}9)${NC} Check System Status"
     echo -e "  ${BOLD}${CYAN}4)${NC} Pig ${PIG_VERSION}             $pig_status     ${BOLD}${CYAN}P)${NC} Create Eclipse Project"
     echo -e "  ${BOLD}${CYAN}5)${NC} Hive ${HIVE_VERSION}             $hive_status"
-    echo -e "  ${BOLD}${CYAN}6)${NC} Eclipse IDE            $eclipse_status          ${BOLD}${MAGENTA}SYSTEM${NC}"
+    echo -e "  ${BOLD}${CYAN}6)${NC} Eclipse IDE            $eclipse_status        ${BOLD}${MAGENTA}SYSTEM${NC}"
     echo -e "  ${BOLD}${CYAN}A)${NC} ${BOLD}Install ALL${NC}                      ${CYAN}──────${NC}"
     echo -e "                                    ${BOLD}${CYAN}U)${NC} Update System"
     echo -e "                                    ${BOLD}${CYAN}D)${NC} Uninstall Components"
