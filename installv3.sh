@@ -1172,6 +1172,30 @@ EOF
     read -p "Press Enter to continue..."
 }
 
+update_system() {
+    echo -e "\n${BOLD}Updating System Packages...${NC}"
+    
+    # 1. APT Update
+    if ! execute_with_spinner "Updating apt package list" sudo apt-get update -qq; then
+        warn "Could not securely update all apt repositories. Continuing anyway..."
+    fi
+    
+    # 2. APT Upgrade
+    if ! execute_with_spinner "Upgrading apt packages" sudo apt-get upgrade -y -qq; then
+        error "Failed to upgrade apt packages. Check your internet connection or run: sudo apt-get upgrade manually."
+    fi
+    
+    # 3. Snap Refresh (if snap is installed)
+    if command -v snap &>/dev/null; then
+        if ! execute_with_spinner "Updating snap packages" sudo snap refresh; then
+            warn "Failed to refresh snap packages. This is usually non-critical."
+        fi
+    fi
+    
+    success "System update completed."
+    read -p "Press Enter to continue..."
+}
+
 show_menu() {
     clear
     echo -e "\n${CYAN}════════════════════════════════════════════════════════════════${NC}"
@@ -1213,6 +1237,7 @@ show_menu() {
     
     echo -e "\n ${BOLD}${MAGENTA}SYSTEM:${NC}\n"
     echo -e "  ${BOLD}${CYAN}I)${NC} Installation Info"
+    echo -e "  ${BOLD}${CYAN}U)${NC} Update System (apt & snap)"
     printf "  ${BOLD}${CYAN}S)${NC} %-30s %s\n" "Create Script's Shortcut" "$shortcut_status"
     echo -e "  ${BOLD}${CYAN}0)${NC} Exit"
     echo ""
@@ -1392,8 +1417,8 @@ main() {
         show_menu
         read -p "Select option: " choice
         
-        # Validate input (allow numbers and letters A, I, P, S)
-        if [[ ! "$choice" =~ ^[0-9AaIiPpSs]+$ ]]; then
+        # Validate input (allow numbers and letters A, I, P, S, U)
+        if [[ ! "$choice" =~ ^[0-9AaIiPpSsUu]+$ ]]; then
             echo -e "${RED}Invalid option. Please enter a valid option.${NC}"
             sleep 2
             continue
@@ -1450,6 +1475,9 @@ main() {
         ;;
     S)
         create_shortcut
+        ;;
+    U)
+        update_system
         ;;
     0)
         echo -e "\n${GREEN}Goodbye! :) | Star the repo if you like it!${NC}\n"
