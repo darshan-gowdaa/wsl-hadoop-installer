@@ -3,7 +3,7 @@
 # WSL Hadoop Ecosystem - Interactive Menu Installer v3 (Optimized)
 # by github.com/darshan-gowdaa
 
-set -Ee
+set -E
 
 # Configuration
 INSTALL_DIR="$HOME/bigdata"
@@ -15,6 +15,7 @@ HIVE_VERSION="3.1.3"
 
 STATE_FILE="$HOME/.hadoop_install_state"
 LOG_FILE="$HOME/hadoop_install.log"
+CURRENT_COMPONENT=""
 
 # Colors
 RED='\033[0;31m'
@@ -138,10 +139,16 @@ check_service_port() {
 run_install_workflow() {
     local component_name=$1
     shift
+    local start_time=$SECONDS
     for cmd in "$@"; do
+        CURRENT_COMPONENT="$component_name"
         "$cmd"
     done
-    success "$component_name installed"
+    local elapsed=$(( SECONDS - start_time ))
+    local mins=$(( elapsed / 60 ))
+    local secs=$(( elapsed % 60 ))
+    CURRENT_COMPONENT=""
+    success "$component_name installed (${mins}m ${secs}s)"
     echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
     read -p "Press Enter to continue..."
 }
@@ -220,7 +227,6 @@ check_command() {
 }
 
 preflight_checks() {
-    clear
     echo -e "\n${CYAN}════════════════════════════════════════════════════════════════${NC}"
     echo -e "${BOLD}${MAGENTA}             Hadoop Ecosystem Installer v3              ${NC}"
     echo -e "${BLUE}               github.com/darshan-gowdaa                ${NC}"
@@ -877,7 +883,7 @@ BASHRC
 }
 
 create_scripts() {
-    skip_if_installed "scripts_created" "Helper scripts" && return
+    skip_if_installed "scripts_created" "Helper scripts" "$HOME/start-hadoop.sh" "false" && return
     
     echo -e "\n${BOLD}Creating Helper Scripts${NC}"
     
@@ -1107,12 +1113,11 @@ show_installation_info() {
     echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}\n"
     
     echo -e "${BOLD}Installed Components:${NC}"
-    is_done "hadoop_full" && echo -e "  ${GREEN}✓${NC} Hadoop ${HADOOP_VERSION}" || echo -e "  ${YELLOW}○${NC} Hadoop ${HADOOP_VERSION}"
-    is_done "spark_full" && echo -e "  ${GREEN}✓${NC} Spark ${SPARK_VERSION}" || echo -e "  ${YELLOW}○${NC} Spark ${SPARK_VERSION}"
-    is_done "kafka_full" && echo -e "  ${GREEN}✓${NC} Kafka ${KAFKA_VERSION}" || echo -e "  ${YELLOW}○${NC} Kafka ${KAFKA_VERSION}"
-    is_done "pig_full" && echo -e "  ${GREEN}✓${NC} Pig ${PIG_VERSION}" || echo -e "  ${YELLOW}○${NC} Pig ${PIG_VERSION}"
-    is_done "hive_full" && echo -e "  ${GREEN}✓${NC} Hive ${HIVE_VERSION}" || echo -e "  ${YELLOW}○${NC} Hive ${HIVE_VERSION}"
-    is_done "eclipse_full" && echo -e "  ${GREEN}✓${NC} Eclipse IDE" || echo -e "  ${YELLOW}○${NC} Eclipse IDE"
+    local components=("hadoop_full:Hadoop ${HADOOP_VERSION}" "spark_full:Spark ${SPARK_VERSION}" "kafka_full:Kafka ${KAFKA_VERSION}" "pig_full:Pig ${PIG_VERSION}" "hive_full:Hive ${HIVE_VERSION}" "eclipse_full:Eclipse IDE")
+    for comp in "${components[@]}"; do
+        IFS=':' read -r key label <<< "$comp"
+        echo -e "  $(get_install_status "$key") $label"
+    done
     
     echo -e "\n${BOLD}Installation Directory:${NC} $INSTALL_DIR"
     
@@ -1238,18 +1243,29 @@ show_uninstall_menu() {
         read -p "Select component to uninstall: " uchoice
         uchoice=$(echo "$uchoice" | tr '[:lower:]' '[:upper:]')
         
+        # Skip confirmation for Back
+        if [[ "$uchoice" == "B" ]]; then
+            return
+        fi
+        
+        # Confirmation prompt
+        local confirm_msg="Are you sure?"
+        [[ "$uchoice" == "A" ]] && confirm_msg="${RED}This will remove ALL components. Are you sure?${NC}"
+        echo -e "\n$confirm_msg"
+        read -p "Type 'yes' to confirm: " confirm
+        [[ "$confirm" != "yes" ]] && { info "Cancelled."; sleep 1; continue; }
+        
         case $uchoice in
-            1) uninstall_component "Hadoop" "$INSTALL_DIR/hadoop-${HADOOP_VERSION}" "hadoop" "hadoop_full"; sleep 2 ;;
-            2) uninstall_component "Spark" "$INSTALL_DIR/spark-${SPARK_VERSION}-bin-hadoop3" "spark" "spark_full"; sleep 2 ;;
-            3) uninstall_component "Kafka" "$INSTALL_DIR/kafka_2.13-${KAFKA_VERSION}" "kafka" "kafka_full"; sleep 2 ;;
-            4) uninstall_component "Pig" "$INSTALL_DIR/pig-${PIG_VERSION}" "pig" "pig_full"; sleep 2 ;;
-            5) uninstall_component "Hive" "$INSTALL_DIR/apache-hive-${HIVE_VERSION}-bin" "hive" "hive_full"; sleep 2 ;;
+            1) uninstall_component "Hadoop" "$INSTALL_DIR/hadoop-${HADOOP_VERSION}" "hadoop" "hadoop_full" ;;
+            2) uninstall_component "Spark" "$INSTALL_DIR/spark-${SPARK_VERSION}-bin-hadoop3" "spark" "spark_full" ;;
+            3) uninstall_component "Kafka" "$INSTALL_DIR/kafka_2.13-${KAFKA_VERSION}" "kafka" "kafka_full" ;;
+            4) uninstall_component "Pig" "$INSTALL_DIR/pig-${PIG_VERSION}" "pig" "pig_full" ;;
+            5) uninstall_component "Hive" "$INSTALL_DIR/apache-hive-${HIVE_VERSION}-bin" "hive" "hive_full" ;;
             6) 
-                execute_with_spinner "Removing Eclipse Snap" sudo snap remove eclipse
+                execute_with_spinner "Removing Eclipse Snap" sudo snap remove eclipse 2>/dev/null || true
                 rm -rf "$HOME/.hadoop-eclipse-config" "$HOME/.local/bin/eclipse-hadoop.sh"
                 sed -i "/^eclipse_full$/d" "$STATE_FILE" 2>/dev/null || true
                 success "Eclipse IDE uninstalled."
-                sleep 2
                 ;;
             A)
                 echo -e "\n${RED}${BOLD}Uninstalling ALL components...${NC}"
@@ -1258,16 +1274,16 @@ show_uninstall_menu() {
                 uninstall_component "Kafka" "$INSTALL_DIR/kafka_2.13-${KAFKA_VERSION}" "kafka" "kafka_full"
                 uninstall_component "Pig" "$INSTALL_DIR/pig-${PIG_VERSION}" "pig" "pig_full"
                 uninstall_component "Hive" "$INSTALL_DIR/apache-hive-${HIVE_VERSION}-bin" "hive" "hive_full"
-                execute_with_spinner "Removing Eclipse Snap" sudo snap remove eclipse &>/dev/null || true
+                execute_with_spinner "Removing Eclipse Snap" sudo snap remove eclipse 2>/dev/null || true
                 rm -rf "$HOME/.hadoop-eclipse-config" "$HOME/.local/bin/eclipse-hadoop.sh"
                 rm -f "$STATE_FILE"
                 success "All components uninstalled successfully."
-                sleep 3
+                sleep 2
                 return
                 ;;
-            B) return ;;
             *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
         esac
+        sleep 2
     done
 }
 
@@ -1302,7 +1318,7 @@ show_menu() {
     printf "${CYAN}║${NC}  ${BOLD}${CYAN}4)${NC} %-24s %b     ${BOLD}${CYAN}P)${NC} %-24s     ${CYAN}║${NC}\n" "Pig ${PIG_VERSION}" "$pig_status" "Create Eclipse Project"
     printf "${CYAN}║${NC}  ${BOLD}${CYAN}5)${NC} %-24s %b                                      ${CYAN}║${NC}\n" "Hive ${HIVE_VERSION}" "$hive_status"
     printf "${CYAN}║${NC}  ${BOLD}${CYAN}6)${NC} %-24s %b     ${BOLD}${MAGENTA}SYSTEM${NC}                            ${CYAN}║${NC}\n" "Eclipse IDE" "$eclipse_status"
-    echo -e "${CYAN}║${NC}                                     ${CYAN}──────${NC}                            ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${CYAN}A)${NC} ${BOLD}Install ALL Components${NC}             ${CYAN}──────${NC}                            ${CYAN}║${NC}"
     printf "${CYAN}║${NC}                                     ${BOLD}${CYAN}I)${NC} %-24s     ${CYAN}║${NC}\n" "Installation Info"
     printf "${CYAN}║${NC}                                     ${BOLD}${CYAN}U)${NC} %-24s     ${CYAN}║${NC}\n" "Update System"
     printf "${CYAN}║${NC}                                     ${BOLD}${CYAN}D)${NC} %-24s     ${CYAN}║${NC}\n" "Uninstall Components"
@@ -1461,7 +1477,11 @@ stop_services() {
 cleanup_on_error() {
     local exit_code=$?
     if [ $exit_code -ne 0 ]; then
-        echo -e "\n${RED}Installation interrupted. Check log: $LOG_FILE${NC}"
+        if [ -n "$CURRENT_COMPONENT" ]; then
+            echo -e "\n${RED}Installation of $CURRENT_COMPONENT interrupted. Check log: $LOG_FILE${NC}"
+        else
+            echo -e "\n${RED}Script interrupted. Check log: $LOG_FILE${NC}"
+        fi
     fi
 }
 
@@ -1498,69 +1518,24 @@ main() {
         choice=$(echo "$choice" | tr '[:lower:]' '[:upper:]')
         
         case $choice in
-
-    1)
-        run_install_workflow "Hadoop" install_system_deps install_hadoop setup_environment create_scripts
-        ;;
-    2)
-        run_install_workflow "Spark" install_system_deps install_hadoop install_spark setup_environment
-        ;;
-    3)
-        run_install_workflow "Kafka" install_system_deps install_kafka setup_environment
-        ;;
-    4)
-        run_install_workflow "Pig" install_system_deps install_hadoop install_pig setup_environment
-        ;;
-    5)
-        run_install_workflow "Hive" install_system_deps install_hadoop install_hive setup_environment
-        ;;
-    6)
-        install_system_deps
-        install_hadoop
-        install_eclipse
-        setup_environment
-        success "Eclipse IDE installed"
-        echo -e "Launch with: ${CYAN}eclipse-hadoop${NC}"
-        echo -e "Or run: ${CYAN}$HOME/.local/bin/eclipse-hadoop.sh${NC}"
-        read -p "Press Enter to continue..."
-        ;;
-    7)
-        start_services
-        read -p "Press Enter to continue..."
-        ;;
-    8)
-        stop_services
-        read -p "Press Enter to continue..."
-        ;;
-    9)
-        check_status
-        read -p "Press Enter to continue..."
-        ;;
-
-    I)
-        show_installation_info
-        ;;
-    P)
-        create_eclipse_project
-        ;;
-    S)
-        create_shortcut
-        ;;
-    U)
-        update_system
-        ;;
-    D)
-        show_uninstall_menu
-        ;;
-    0)
-        echo -e "\n${GREEN}Goodbye! :) | Star the repo if you like it!${NC}\n"
-        exit 0
-        ;;
-    *)
-        echo -e "${RED}Invalid option. Please select a valid option.${NC}"
-        sleep 2
-        ;;
-esac
+            1) run_install_workflow "Hadoop" install_system_deps install_hadoop setup_environment create_scripts ;;
+            2) run_install_workflow "Spark" install_system_deps install_hadoop install_spark setup_environment ;;
+            3) run_install_workflow "Kafka" install_system_deps install_kafka setup_environment ;;
+            4) run_install_workflow "Pig" install_system_deps install_hadoop install_pig setup_environment ;;
+            5) run_install_workflow "Hive" install_system_deps install_hadoop install_hive setup_environment ;;
+            6) run_install_workflow "Eclipse" install_system_deps install_hadoop install_eclipse setup_environment ;;
+            A) run_install_workflow "All Components" install_system_deps install_hadoop install_spark install_kafka install_pig install_hive setup_environment create_scripts ;;
+            7) start_services; read -p "Press Enter to continue..." ;;
+            8) stop_services; read -p "Press Enter to continue..." ;;
+            9) check_status; read -p "Press Enter to continue..." ;;
+            I) show_installation_info ;;
+            P) create_eclipse_project ;;
+            S) create_shortcut ;;
+            U) update_system ;;
+            D) show_uninstall_menu ;;
+            0) echo -e "\n${GREEN}Goodbye! :) | Star the repo if you like it!${NC}\n"; exit 0 ;;
+            *) echo -e "${RED}Invalid option.${NC}"; sleep 2 ;;
+        esac
     done
 }
 
