@@ -37,6 +37,15 @@ warn() { echo -e "${YELLOW}!${NC} $1"; }
 mark_done() { is_done "$1" || echo "$1" >> "$STATE_FILE"; }
 is_done() { [ -f "$STATE_FILE" ] && grep -Fxq "$1" "$STATE_FILE" 2>/dev/null; }
 
+verify_installation() {
+    local component=$1
+    local check_dir=$2
+    if is_done "$component" && [ ! -d "$check_dir" ]; then
+        warn "$component marked as installed but files missing — will reinstall"
+        sed -i "/^${component}$/d" "$STATE_FILE"
+    fi
+}
+
 skip_if_installed() {
     local component=$1
     local message=$2
@@ -331,7 +340,8 @@ install_hadoop() {
     
     mkdir -p "$INSTALL_DIR" && cd "$INSTALL_DIR"
     
-    if [ ! -d "hadoop-${HADOOP_VERSION}" ]; then
+    if [ ! -d "hadoop-${HADOOP_VERSION}" ] || [ ! -d "hadoop-${HADOOP_VERSION}/bin" ]; then
+        rm -rf "hadoop-${HADOOP_VERSION}"
         download_file \
             "https://dlcdn.apache.org/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz" \
             "hadoop.tgz" || error "Hadoop download failed"
@@ -421,7 +431,8 @@ install_spark() {
     
     cd "$INSTALL_DIR"
     
-    if [ ! -d "spark-${SPARK_VERSION}-bin-hadoop3" ]; then
+    if [ ! -d "spark-${SPARK_VERSION}-bin-hadoop3" ] || [ ! -d "spark-${SPARK_VERSION}-bin-hadoop3/bin" ]; then
+        rm -rf "spark-${SPARK_VERSION}-bin-hadoop3"
         download_file \
             "https://downloads.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" \
             "spark.tgz" || error "Spark download failed"
@@ -459,7 +470,8 @@ install_kafka() {
     
     cd "$INSTALL_DIR" || error "Cannot access $INSTALL_DIR"
     
-    if [ ! -d "kafka_2.13-${KAFKA_VERSION}" ]; then
+    if [ ! -d "kafka_2.13-${KAFKA_VERSION}" ] || [ ! -d "kafka_2.13-${KAFKA_VERSION}/bin" ]; then
+        rm -rf "kafka_2.13-${KAFKA_VERSION}"
         if ! download_file \
             "https://dlcdn.apache.org/kafka/${KAFKA_VERSION}/kafka_2.13-${KAFKA_VERSION}.tgz" \
             "kafka.tgz"; then
@@ -521,7 +533,8 @@ install_pig() {
     
     cd "$INSTALL_DIR"
     
-    if [ ! -d "pig-${PIG_VERSION}" ]; then
+    if [ ! -d "pig-${PIG_VERSION}" ] || [ ! -d "pig-${PIG_VERSION}/bin" ]; then
+        rm -rf "pig-${PIG_VERSION}"
         # Custom mirror logic for Pig (more reliable than generic download_file)
         local mirrors=(
             "https://archive.apache.org/dist/pig/pig-${PIG_VERSION}/pig-${PIG_VERSION}.tar.gz"
@@ -560,7 +573,8 @@ install_hive() {
     
     cd "$INSTALL_DIR"
     
-    if [ ! -d "apache-hive-${HIVE_VERSION}-bin" ]; then
+    if [ ! -d "apache-hive-${HIVE_VERSION}-bin" ] || [ ! -d "apache-hive-${HIVE_VERSION}-bin/bin" ]; then
+        rm -rf "apache-hive-${HIVE_VERSION}-bin"
         download_file \
             "https://archive.apache.org/dist/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz" \
             "hive.tgz" || error "Hive download failed"
@@ -1351,6 +1365,13 @@ main() {
     }
     
     preflight_checks
+    
+    # Verify installations match state file (detect stale/missing installs)
+    verify_installation "hadoop_full" "$INSTALL_DIR/hadoop-${HADOOP_VERSION}"
+    verify_installation "spark_full" "$INSTALL_DIR/spark-${SPARK_VERSION}-bin-hadoop3"
+    verify_installation "kafka_full" "$INSTALL_DIR/kafka_2.13-${KAFKA_VERSION}"
+    verify_installation "pig_full" "$INSTALL_DIR/pig-${PIG_VERSION}"
+    verify_installation "hive_full" "$INSTALL_DIR/apache-hive-${HIVE_VERSION}-bin"
     
     while true; do
         show_menu
