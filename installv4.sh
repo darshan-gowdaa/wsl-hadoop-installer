@@ -607,6 +607,10 @@ apply_hadoop_runtime_tuning() {
             sed -i '/<\/configuration>/i\    <property><name>mapreduce.map.memory.mb<\/name><value>1024<\/value><\/property>\n    <property><name>mapreduce.reduce.memory.mb<\/name><value>1024<\/value><\/property>\n    <property><name>mapreduce.map.java.opts<\/name><value>-Xmx820m<\/value><\/property>\n    <property><name>mapreduce.reduce.java.opts<\/name><value>-Xmx820m<\/value><\/property>' "$mapred_site"
             info "Applied MapReduce memory tuning to existing mapred-site.xml"
         fi
+        
+        # Ensure MapReduce application classpath contains all necessary Hadoop JARS
+        local full_cp=$("$hadoop_home/bin/hadoop" classpath)
+        sed -i "s|<name>mapreduce.application.classpath</name><value>.*</value>|<name>mapreduce.application.classpath</name><value>$full_cp</value>|g" "$mapred_site"
     fi
 }
 
@@ -689,6 +693,7 @@ EOF
 EOF
     
     # mapred-site.xml
+    local full_cp=$("$HADOOP_HOME/bin/hadoop" classpath)
     cat > "$conf/mapred-site.xml" <<EOF
 <?xml version="1.0"?>
 <configuration>
@@ -696,7 +701,7 @@ EOF
     <property><name>yarn.app.mapreduce.am.env</name><value>HADOOP_MAPRED_HOME=$HADOOP_HOME</value></property>
     <property><name>mapreduce.map.env</name><value>HADOOP_MAPRED_HOME=$HADOOP_HOME</value></property>
     <property><name>mapreduce.reduce.env</name><value>HADOOP_MAPRED_HOME=$HADOOP_HOME</value></property>
-    <property><name>mapreduce.application.classpath</name><value>\$HADOOP_MAPRED_HOME/share/hadoop/mapreduce/*:\$HADOOP_MAPRED_HOME/share/hadoop/mapreduce/lib/*</value></property>
+    <property><name>mapreduce.application.classpath</name><value>$full_cp</value></property>
     <property><name>mapreduce.map.memory.mb</name><value>1024</value></property>
     <property><name>mapreduce.reduce.memory.mb</name><value>1024</value></property>
     <property><name>mapreduce.map.java.opts</name><value>-Xmx820m</value></property>
