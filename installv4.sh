@@ -317,9 +317,15 @@ run_install_workflow() {
     local mins=$(( elapsed / 60 ))
     local secs=$(( elapsed % 60 ))
     CURRENT_COMPONENT=""
+    refresh_shell_env
     success "$component_name installed (${mins}m ${secs}s)"
-    echo -e "Run: ${CYAN}source ~/.bashrc${NC}"
+    info "Environment refreshed automatically (sourced ~/.bashrc + hash -r)"
     read -p "Press Enter to continue..."
+}
+
+refresh_shell_env() {
+    [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc" >/dev/null 2>&1 || true
+    hash -r 2>/dev/null || true
 }
 
 safe_execute() {
@@ -1326,12 +1332,19 @@ export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
 export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$PIG_HOME/bin:$HIVE_HOME/bin:$PATH
 
 # Kafka wrapper (Java 17)
+export KAFKA_JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 kafka-server-start() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-server-start.sh "$@"; }
 kafka-topics() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-topics.sh "$@"; }
 kafka-console-producer() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-console-producer.sh "$@"; }
 kafka-console-consumer() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-console-consumer.sh "$@"; }
 kafka-configs() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-configs.sh "$@"; }
 kafka-consumer-groups() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-consumer-groups.sh "$@"; }
+alias kafka-server-start.sh='JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 command kafka-server-start.sh'
+alias kafka-topics.sh='JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 command kafka-topics.sh'
+alias kafka-console-producer.sh='JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 command kafka-console-producer.sh'
+alias kafka-console-consumer.sh='JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 command kafka-console-consumer.sh'
+alias kafka-configs.sh='JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 command kafka-configs.sh'
+alias kafka-consumer-groups.sh='JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 command kafka-consumer-groups.sh'
 
 # Hive wrapper (Java 8 + auto-start metastore)
 hive() {
@@ -1345,6 +1358,8 @@ hive() {
 }
 # <<< hadoop-ecosystem-env <<<
 BASHRC
+
+    refresh_shell_env
     
     mark_done "env_setup"
     success "Environment configured"
