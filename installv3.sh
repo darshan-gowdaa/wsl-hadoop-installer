@@ -716,8 +716,10 @@ SQL
     # Download MySQL JDBC connector
     info "Downloading MySQL JDBC connector..."
     cd "$HIVE_HOME/lib"
-    [ ! -f "mysql-connector-java-8.0.30.jar" ] && \
-        wget -q https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.30/mysql-connector-java-8.0.30.jar
+    if [ ! -f "mysql-connector-java-8.0.30.jar" ]; then
+        wget -q https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.30/mysql-connector-java-8.0.30.jar || \
+            error "Failed to download mysql-connector-java-8.0.30.jar"
+    fi
 
     # Fix Guava version mismatch (Hive ships old guava; replace with Hadoop's)
     rm -f "$HIVE_HOME/lib/guava-19.0.jar" 2>/dev/null || true
@@ -750,10 +752,6 @@ SQL
     <property>
         <name>hive.metastore.warehouse.dir</name>
         <value>/user/hive/warehouse</value>
-    </property>
-    <property>
-        <name>hive.metastore.uris</name>
-        <value>thrift://localhost:9083</value>
     </property>
     <property>
         <name>hive.server2.thrift.port</name>
@@ -800,17 +798,42 @@ EOF
         success "Patched hadoop-env.sh to respect Hive's Java 8 override"
     fi
 
-    # Initialize Hive metastore schema with Java 8
-    info "Initializing Hive metastore schema..."
-    if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/schematool" -dbType mysql -initSchema 2>&1 | tee -a "$LOG_FILE"; then
-        success "Hive metastore schema initialized"
+    # Initialize Hive metastore schema in an idempotent way.
+    # If old partial tables exist without VERSION, recreate DB once and retry.
+    local schema_version
+    schema_version=$(sudo mysql -N -s -u root -e "SELECT SCHEMA_VERSION FROM metastore.VERSION LIMIT 1" 2>/dev/null || true)
+
+    if [ -n "$schema_version" ]; then
+        success "Hive metastore schema already initialized (version: $schema_version)"
     else
-        # initSchema can fail if schema already exists — verify with -info
-        info "initSchema returned non-zero, checking if schema already exists..."
-        if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/schematool" -dbType mysql -info 2>&1 | grep -q "Hive distribution version"; then
-            success "Hive metastore schema already exists"
+        info "Initializing Hive metastore schema..."
+        if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/schematool" -dbType mysql -initSchema 2>&1 | tee -a "$LOG_FILE"; then
+            success "Hive metastore schema initialized"
         else
-            error "Hive metastore schema initialization failed. Check MySQL connection and $LOG_FILE for details."
+            warn "Schema init failed on first attempt. Checking existing metastore tables..."
+
+            local table_count
+            table_count=$(sudo mysql -N -s -u root -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='metastore'" 2>/dev/null || echo 0)
+
+            if [ "${table_count:-0}" -gt 0 ]; then
+                warn "Found old/partial metastore tables. Recreating metastore DB and retrying once..."
+                if ! sudo mysql -u root <<'SQL' 2>/dev/null; then
+DROP DATABASE IF EXISTS metastore;
+CREATE DATABASE metastore;
+GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+                    error "Failed to recreate metastore database"
+                fi
+
+                if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/schematool" -dbType mysql -initSchema 2>&1 | tee -a "$LOG_FILE"; then
+                    success "Hive metastore schema initialized after clean retry"
+                else
+                    error "Hive metastore schema initialization failed after retry. Check $LOG_FILE"
+                fi
+            else
+                error "Hive metastore schema initialization failed. Check MySQL and $LOG_FILE"
+            fi
         fi
     fi
 
@@ -1557,8 +1580,8 @@ start_services() {
             JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 \
                 nohup "$INSTALL_DIR/hive/bin/hive" --service metastore \
                 > "$INSTALL_DIR/hive/metastore.log" 2>&1 &
-            sleep 5
-            if pgrep -f "HiveMetaStore" > /dev/null; then
+            sleep 6
+            if pgrep -f "HiveMetaStore" > /dev/null && nc -z localhost 9083 2>/dev/null; then
                 success "Hive Metastore started"
             else
                 warn "Hive Metastore may have failed to start. Check: $INSTALL_DIR/hive/metastore.log"
