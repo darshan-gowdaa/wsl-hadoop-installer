@@ -165,12 +165,55 @@ validate_hive_installation() {
         return 1
     fi
 
+    if ! JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate >/dev/null 2>>"$LOG_FILE"; then
+        warn "Hive metastore schema validation failed"
+        return 1
+    fi
+
     if ! JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/hive" -S -e "show databases;" >/dev/null 2>>"$LOG_FILE"; then
         warn "Hive smoke test failed (show databases)"
         return 1
     fi
 
     return 0
+}
+
+repair_hive_metastore_schema() {
+    local hive_home="${HIVE_HOME:-$INSTALL_DIR/hive}"
+    local schema_version
+
+    schema_version=$(sudo mysql -N -s -u root -e "SELECT SCHEMA_VERSION FROM metastore.VERSION LIMIT 1" 2>/dev/null || true)
+
+    if [ -n "$schema_version" ]; then
+        info "Found Hive metastore schema version: $schema_version"
+        if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate 2>&1 | tee -a "$LOG_FILE"; then
+            success "Hive metastore schema validation passed"
+            return 0
+        fi
+        warn "Hive schema exists but validation failed. Rebuilding metastore schema..."
+    else
+        info "Hive metastore schema not found. Initializing..."
+    fi
+
+    if ! sudo mysql -u root <<'SQL' 2>/dev/null; then
+DROP DATABASE IF EXISTS metastore;
+CREATE DATABASE metastore;
+GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'localhost';
+GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'127.0.0.1';
+FLUSH PRIVILEGES;
+SQL
+        error "Failed to recreate metastore database"
+    fi
+
+    if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -initSchema 2>&1 | tee -a "$LOG_FILE"; then
+        success "Hive metastore schema initialized"
+    else
+        error "Hive metastore schema initialization failed. Check $LOG_FILE"
+    fi
+
+    if ! JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate 2>&1 | tee -a "$LOG_FILE"; then
+        error "Hive metastore schema validation failed after rebuild. Check $LOG_FILE"
+    fi
 }
 
 check_service_port() {
@@ -753,8 +796,11 @@ install_hive() {
     if ! sudo mysql -u root <<'SQL' 2>/dev/null; then
 CREATE DATABASE IF NOT EXISTS metastore;
 CREATE USER IF NOT EXISTS 'hiveuser'@'localhost' IDENTIFIED WITH mysql_native_password BY 'hivepassword';
+CREATE USER IF NOT EXISTS 'hiveuser'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY 'hivepassword';
 ALTER USER 'hiveuser'@'localhost' IDENTIFIED WITH mysql_native_password BY 'hivepassword';
+ALTER USER 'hiveuser'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY 'hivepassword';
 GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'localhost';
+GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'127.0.0.1';
 FLUSH PRIVILEGES;
 SQL
         error "Failed to create Hive metastore database. Check MySQL connection."
@@ -827,7 +873,7 @@ SQL
     </property>
     <property>
         <name>datanucleus.schema.autoCreateAll</name>
-        <value>true</value>
+        <value>false</value>
     </property>
     <property>
         <name>hive.exec.scratchdir</name>
@@ -854,49 +900,15 @@ EOF
         success "Patched hadoop-env.sh to respect Hive's Java 8 override"
     fi
 
-    # Initialize Hive metastore schema in an idempotent way.
-    # If old partial tables exist without VERSION, recreate DB once and retry.
-    local schema_version
-    schema_version=$(sudo mysql -N -s -u root -e "SELECT SCHEMA_VERSION FROM metastore.VERSION LIMIT 1" 2>/dev/null || true)
-
-    if [ -n "$schema_version" ]; then
-        success "Hive metastore schema already initialized (version: $schema_version)"
-    else
-        info "Initializing Hive metastore schema..."
-        if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/schematool" -dbType mysql -initSchema 2>&1 | tee -a "$LOG_FILE"; then
-            success "Hive metastore schema initialized"
-        else
-            warn "Schema init failed on first attempt. Checking existing metastore tables..."
-
-            local table_count
-            table_count=$(sudo mysql -N -s -u root -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='metastore'" 2>/dev/null || echo 0)
-
-            if [ "${table_count:-0}" -gt 0 ]; then
-                warn "Found old/partial metastore tables. Recreating metastore DB and retrying once..."
-                if ! sudo mysql -u root <<'SQL' 2>/dev/null; then
-DROP DATABASE IF EXISTS metastore;
-CREATE DATABASE metastore;
-GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'localhost';
-FLUSH PRIVILEGES;
-SQL
-                    error "Failed to recreate metastore database"
-                fi
-
-                if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/schematool" -dbType mysql -initSchema 2>&1 | tee -a "$LOG_FILE"; then
-                    success "Hive metastore schema initialized after clean retry"
-                else
-                    error "Hive metastore schema initialization failed after retry. Check $LOG_FILE"
-                fi
-            else
-                error "Hive metastore schema initialization failed. Check MySQL and $LOG_FILE"
-            fi
-        fi
-    fi
+    # Ensure schema is actually valid and consistent, not just partially initialized.
+    repair_hive_metastore_schema
 
     info "Running Hive smoke test..."
-    if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/hive" -S -e "show databases;" >/dev/null 2>>"$LOG_FILE"; then
+    if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/hive" -S -e "show databases;" >>"$LOG_FILE" 2>&1; then
         success "Hive query smoke test passed"
     else
+        warn "Hive smoke test failed. Last Hive log lines:"
+        tail -n 30 "$LOG_FILE" || true
         error "Hive installed but smoke test failed. See $LOG_FILE for metastore/JDBC errors"
     fi
 
@@ -1594,6 +1606,9 @@ start_services() {
     
     # Ensure SSH is running
     ensure_service_running "ssh" "sshd" "SSH service not started"
+
+    # Always ensure MySQL is running when starting the stack
+    ensure_service_running "mysql" "mysqld" "MySQL service not started"
     
     # Test SSH connectivity
     if ! ssh -o BatchMode=yes -o ConnectTimeout=5 localhost exit &>/dev/null; then
