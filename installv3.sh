@@ -96,7 +96,14 @@ configure_dns_server() {
 check_java_version() {
     local version=$1
     local java_path="/usr/lib/jvm/java-$version-openjdk-amd64"
-    [ -d "$java_path" ] || error "Java $version not found. Install with: sudo apt-get install -y openjdk-$version-jdk"
+    if [ ! -d "$java_path" ]; then
+        warn "Java $version not found. Installing openjdk-$version-jdk..."
+        if ! execute_with_spinner "Installing OpenJDK $version" sudo apt-get install -y "openjdk-$version-jdk" -qq; then
+            error "Failed to install openjdk-$version-jdk"
+        fi
+        [ -d "$java_path" ] || error "Java $version installation failed - $java_path not found"
+        success "Java $version installed"
+    fi
 }
 
 ensure_service_running() {
@@ -393,7 +400,7 @@ install_hadoop() {
     
     # hadoop-env.sh
     cat > "$conf/hadoop-env.sh" <<EOF
-export JAVA_HOME=$JAVA_HOME
+export JAVA_HOME=\${JAVA_HOME:-/usr/lib/jvm/java-11-openjdk-amd64}
 export HADOOP_HOME=$HADOOP_HOME
 export HDFS_NAMENODE_USER="$USER"
 export HDFS_DATANODE_USER="$USER"
@@ -782,6 +789,15 @@ export HIVE_CONF_DIR=$HIVE_HOME/conf
 export HIVE_AUX_JARS_PATH=$HIVE_HOME/lib
 EOF
     chmod +x "$HIVE_HOME/conf/hive-env.sh"
+
+    # Patch hadoop-env.sh so it doesn't override JAVA_HOME when Hive sets it to Java 8
+    # Hive calls Hadoop's RunJar which sources hadoop-env.sh — if it hardcodes Java 11,
+    # it overrides hive-env.sh's Java 8 setting, causing the URLClassLoader crash
+    local hadoop_env="$HADOOP_HOME/etc/hadoop/hadoop-env.sh"
+    if [ -f "$hadoop_env" ] && grep -q '^export JAVA_HOME=/usr/lib/jvm' "$hadoop_env"; then
+        sed -i 's|^export JAVA_HOME=.*|export JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/java-11-openjdk-amd64}|' "$hadoop_env"
+        success "Patched hadoop-env.sh to respect Hive's Java 8 override"
+    fi
 
     # Initialize Hive metastore schema with Java 8
     info "Initializing Hive metastore schema..."
