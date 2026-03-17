@@ -189,9 +189,8 @@ repair_hive_metastore_schema() {
 
     if [ -n "$schema_version" ]; then
         info "Found Hive metastore schema version: $schema_version"
-        JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate 2>&1 | tee -a "$LOG_FILE"
-        if [ "${PIPESTATUS[0]}" -eq 0 ]; then
-            success "Hive metastore schema validation passed"
+        if execute_with_spinner "Validating Hive metastore schema" \
+            env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate; then
             return 0
         fi
         warn "Hive schema exists but validation failed. Rebuilding metastore schema..."
@@ -209,15 +208,13 @@ SQL
         error "Failed to recreate metastore database"
     fi
 
-    JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -initSchema 2>&1 | tee -a "$LOG_FILE"
-    if [ "${PIPESTATUS[0]}" -eq 0 ]; then
-        success "Hive metastore schema initialized"
-    else
+    if ! execute_with_spinner "Initializing Hive metastore schema" \
+        env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -initSchema; then
         error "Hive metastore schema initialization failed. Check $LOG_FILE"
     fi
 
-    JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate 2>&1 | tee -a "$LOG_FILE"
-    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+    if ! execute_with_spinner "Validating Hive metastore schema" \
+        env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate; then
         error "Hive metastore schema validation failed after rebuild. Check $LOG_FILE"
     fi
 }
@@ -835,13 +832,26 @@ SQL
     cp "$HADOOP_HOME/share/hadoop/common/lib/guava-"*.jar "$HIVE_HOME/lib/" 2>/dev/null || true
 
     # Fix commons-collections missing (Hive 3.1.3 needs v3.x; Hadoop 3.4 only ships v4)
-    if ! ls "$HIVE_HOME/lib/commons-collections-3"*.jar &>/dev/null; then
-        if ls "$HADOOP_HOME/share/hadoop/common/lib/commons-collections-3"*.jar &>/dev/null; then
-            cp "$HADOOP_HOME/share/hadoop/common/lib/commons-collections-3"*.jar "$HIVE_HOME/lib/"
-        else
+    if ! ls "$HIVE_HOME"/lib/commons-collections-3*.jar &>/dev/null; then
+        local cc_found=false
+        # Try Hadoop's lib first
+        for dir in "$HADOOP_HOME"/share/hadoop/common/lib "$HADOOP_HOME"/share/hadoop/hdfs/lib "$HADOOP_HOME"/share/hadoop/mapreduce/lib; do
+            if ls "$dir"/commons-collections-3*.jar &>/dev/null 2>&1; then
+                cp "$dir"/commons-collections-3*.jar "$HIVE_HOME/lib/"
+                cc_found=true
+                break
+            fi
+        done
+        # Download from Maven Central if not found locally
+        if [ "$cc_found" = "false" ]; then
+            info "Downloading commons-collections-3.2.2.jar from Maven Central..."
+            wget -q "https://repo1.maven.org/maven2/commons-collections/commons-collections/3.2.2/commons-collections-3.2.2.jar" \
+                -O "$HIVE_HOME/lib/commons-collections-3.2.2.jar" || \
             curl -fSL "https://repo1.maven.org/maven2/commons-collections/commons-collections/3.2.2/commons-collections-3.2.2.jar" \
-                -o "$HIVE_HOME/lib/commons-collections-3.2.2.jar"
+                -o "$HIVE_HOME/lib/commons-collections-3.2.2.jar" || \
+            error "Failed to download commons-collections-3.2.2.jar"
         fi
+        success "commons-collections-3.x added to Hive lib"
     fi
 
     # Fix SLF4J multiple bindings warning
@@ -925,11 +935,10 @@ EOF
     repair_hive_metastore_schema
 
     # Ensure HDFS is running — Hive needs it for warehouse/scratch dirs
-    info "Ensuring HDFS is running for Hive..."
     ensure_service_running "ssh" "sshd" "SSH required for HDFS"
     if ! pgrep -f "NameNode" >/dev/null; then
-        "$HADOOP_HOME/sbin/start-dfs.sh" &>/dev/null || true
-        sleep 5
+        execute_with_spinner "Starting HDFS" "$HADOOP_HOME/sbin/start-dfs.sh" || true
+        sleep 3
     fi
     "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode wait &>/dev/null || true
     "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode leave &>/dev/null || true
@@ -937,32 +946,30 @@ EOF
 
     # Start Hive Metastore daemon — the CLI connects via thrift://localhost:9083
     if ! pgrep -f "HiveMetaStore" >/dev/null; then
-        info "Starting Hive Metastore daemon..."
         JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 nohup "$HIVE_HOME/bin/hive" --service metastore >>"$LOG_FILE" 2>&1 &
-        local ms_pid=$!
-        # Wait for metastore to be ready (up to 30 seconds)
-        local wait_count=0
-        while [ $wait_count -lt 30 ]; do
-            if nc -z localhost 9083 2>/dev/null; then
-                success "Hive Metastore is ready on port 9083"
-                break
-            fi
-            sleep 1
-            ((wait_count++))
-        done
-        if [ $wait_count -ge 30 ]; then
-            warn "Hive Metastore did not start within 30 seconds"
+        # Wait for metastore with spinner
+        (
+            for i in $(seq 1 60); do
+                nc -z localhost 9083 2>/dev/null && exit 0
+                sleep 1
+            done
+            exit 1
+        ) &
+        spinner $! "Starting Hive Metastore daemon"
+        if [ $? -ne 0 ]; then
+            warn "Hive Metastore did not start within 60 seconds. Check $LOG_FILE"
+            tail -n 10 "$LOG_FILE" 2>/dev/null || true
         fi
     else
-        info "Hive Metastore already running"
+        success "Hive Metastore already running"
     fi
 
-    info "Running Hive smoke test..."
-    if timeout 120 env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/hive" -S -e "show databases;" >>"$LOG_FILE" 2>&1; then
-        success "Hive query smoke test passed"
+    if execute_with_spinner "Running Hive smoke test" \
+        timeout 120 env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/hive" -S -e "show databases;"; then
+        : # spinner already showed ✓
     else
-        warn "Hive smoke test failed. Last Hive log lines:"
-        tail -n 30 "$LOG_FILE" || true
+        warn "Hive smoke test failed. Last log lines:"
+        tail -n 10 "$LOG_FILE" || true
         error "Hive installed but smoke test failed. See $LOG_FILE for metastore/JDBC errors"
     fi
 
