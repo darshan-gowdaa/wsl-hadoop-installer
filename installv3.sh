@@ -834,6 +834,16 @@ SQL
     rm -f "$HIVE_HOME/lib/guava-19.0.jar" 2>/dev/null || true
     cp "$HADOOP_HOME/share/hadoop/common/lib/guava-"*.jar "$HIVE_HOME/lib/" 2>/dev/null || true
 
+    # Fix commons-collections missing (Hive 3.1.3 needs v3.x; Hadoop 3.4 only ships v4)
+    if ! ls "$HIVE_HOME/lib/commons-collections-3"*.jar &>/dev/null; then
+        if ls "$HADOOP_HOME/share/hadoop/common/lib/commons-collections-3"*.jar &>/dev/null; then
+            cp "$HADOOP_HOME/share/hadoop/common/lib/commons-collections-3"*.jar "$HIVE_HOME/lib/"
+        else
+            curl -fSL "https://repo1.maven.org/maven2/commons-collections/commons-collections/3.2.2/commons-collections-3.2.2.jar" \
+                -o "$HIVE_HOME/lib/commons-collections-3.2.2.jar"
+        fi
+    fi
+
     # Fix SLF4J multiple bindings warning
     rm -f "$HIVE_HOME/lib/log4j-slf4j-impl-"*.jar 2>/dev/null || true
 
