@@ -269,6 +269,42 @@ check_service_port() {
     fi
 }
 
+print_services_dashboard() {
+    echo -e "\n${BOLD}Service Dashboard:${NC}\n"
+
+    local items=(
+        "SSH:sshd:22"
+        "MySQL:mysqld:3306"
+        "NameNode:NameNode:9870"
+        "DataNode:DataNode:9864"
+        "ResourceManager:ResourceManager:8088"
+        "NodeManager:NodeManager:8042"
+        "Kafka:kafka.Kafka:9092"
+        "HiveMetaStore:HiveMetaStore:9083"
+    )
+
+    for item in "${items[@]}"; do
+        IFS=':' read -r name proc port <<< "$item"
+        local proc_ok="${RED}DOWN${NC}"
+        local port_ok="${RED}CLOSED${NC}"
+
+        if pgrep -f "$proc" >/dev/null 2>&1; then
+            proc_ok="${GREEN}UP${NC}"
+        fi
+        if nc -z localhost "$port" 2>/dev/null; then
+            port_ok="${GREEN}OPEN${NC}"
+        fi
+
+        printf "  %-16s process: %-12b port %-5s: %b\n" "$name" "$proc_ok" "$port" "$port_ok"
+    done
+
+    echo -e "\n${BOLD}Web UI Endpoints:${NC}"
+    nc -z localhost 9870 2>/dev/null && echo -e "  HDFS NameNode: ${CYAN}http://localhost:9870${NC}"
+    nc -z localhost 8088 2>/dev/null && echo -e "  YARN RM:       ${CYAN}http://localhost:8088${NC}"
+    nc -z localhost 9864 2>/dev/null && echo -e "  HDFS DataNode: ${CYAN}http://localhost:9864${NC}"
+    nc -z localhost 8042 2>/dev/null && echo -e "  NodeManager:   ${CYAN}http://localhost:8042${NC}"
+}
+
 run_install_workflow() {
     local component_name=$1
     shift
@@ -1272,13 +1308,14 @@ EOF
 }
 
 setup_environment() {
-    skip_if_installed "env_setup" "Environment" "$HOME/.bashrc" "false" && return
-    
     echo -e "\n${BOLD}Configuring Environment${NC}"
-    
-    if ! grep -q "HADOOP_HOME" "$HOME/.bashrc"; then
-        cat >> "$HOME/.bashrc" <<'BASHRC'
 
+    touch "$HOME/.bashrc"
+    sed -i '/^# >>> hadoop-ecosystem-env >>>$/,/^# <<< hadoop-ecosystem-env <<<$/d' "$HOME/.bashrc" 2>/dev/null || true
+
+    cat >> "$HOME/.bashrc" <<'BASHRC'
+
+# >>> hadoop-ecosystem-env >>>
 # Hadoop Ecosystem
 export HADOOP_HOME=$HOME/bigdata/hadoop
 export SPARK_HOME=$HOME/bigdata/spark
@@ -1306,8 +1343,8 @@ hive() {
     fi
     JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 $HIVE_HOME/bin/hive "$@"
 }
+# <<< hadoop-ecosystem-env <<<
 BASHRC
-    fi
     
     mark_done "env_setup"
     success "Environment configured"
@@ -1848,8 +1885,7 @@ start_services() {
     
     local elapsed=$(( SECONDS - start_time ))
     success "Services started (${elapsed}s)"
-    echo -e "  HDFS: ${CYAN}http://localhost:9870${NC}"
-    echo -e "  YARN: ${CYAN}http://localhost:8088${NC}"
+    print_services_dashboard
 }
 
 stop_services() {
