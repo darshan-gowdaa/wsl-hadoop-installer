@@ -704,7 +704,8 @@ install_hive() {
     info "Creating Hive metastore database and user..."
     if ! sudo mysql -u root <<'SQL' 2>/dev/null; then
 CREATE DATABASE IF NOT EXISTS metastore;
-CREATE USER IF NOT EXISTS 'hiveuser'@'localhost' IDENTIFIED BY 'hivepassword';
+CREATE USER IF NOT EXISTS 'hiveuser'@'localhost' IDENTIFIED WITH mysql_native_password BY 'hivepassword';
+ALTER USER 'hiveuser'@'localhost' IDENTIFIED WITH mysql_native_password BY 'hivepassword';
 GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'localhost';
 FLUSH PRIVILEGES;
 SQL
@@ -732,7 +733,7 @@ SQL
 <configuration>
     <property>
         <name>javax.jdo.option.ConnectionURL</name>
-        <value>jdbc:mysql://localhost:3306/metastore?createDatabaseIfNotExist=true&amp;useSSL=false</value>
+        <value>jdbc:mysql://localhost:3306/metastore?createDatabaseIfNotExist=true&amp;useSSL=false&amp;allowPublicKeyRetrieval=true</value>
     </property>
     <property>
         <name>javax.jdo.option.ConnectionDriverName</name>
@@ -804,8 +805,13 @@ EOF
     if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/schematool" -dbType mysql -initSchema 2>&1 | tee -a "$LOG_FILE"; then
         success "Hive metastore schema initialized"
     else
-        warn "Schema init had warnings (may already exist). Trying -validate instead..."
-        JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/schematool" -dbType mysql -validate 2>&1 | tee -a "$LOG_FILE" || true
+        # initSchema can fail if schema already exists — verify with -info
+        info "initSchema returned non-zero, checking if schema already exists..."
+        if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/schematool" -dbType mysql -info 2>&1 | grep -q "Hive distribution version"; then
+            success "Hive metastore schema already exists"
+        else
+            error "Hive metastore schema initialization failed. Check MySQL connection and $LOG_FILE for details."
+        fi
     fi
 
     mark_done "hive_full"
@@ -1031,6 +1037,17 @@ export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$
 # Kafka wrapper (Java 17)
 kafka-server-start() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-server-start.sh "$@"; }
 kafka-topics() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-topics.sh "$@"; }
+
+# Hive wrapper (Java 8 + auto-start metastore)
+hive() {
+    if ! pgrep -f HiveMetaStore > /dev/null 2>&1; then
+        echo "Starting Hive Metastore..."
+        sudo service mysql start &>/dev/null
+        JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 nohup $HIVE_HOME/bin/hive --service metastore &>/dev/null &
+        sleep 3
+    fi
+    JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 $HIVE_HOME/bin/hive "$@"
+}
 BASHRC
     fi
     
@@ -1060,7 +1077,7 @@ export HADOOP_HOME="$INSTALL_DIR/hadoop"
 "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/$USER /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null
 "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null
 
-nohup "$INSTALL_DIR/hive/bin/hive" --service metastore &>/dev/null &
+JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 nohup "$INSTALL_DIR/hive/bin/hive" --service metastore &>/dev/null &
 JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 nohup "$INSTALL_DIR/kafka/bin/kafka-server-start.sh" "$INSTALL_DIR/kafka/config/kraft-server.properties" &>/dev/null &
 
 echo "✓ All services started"
