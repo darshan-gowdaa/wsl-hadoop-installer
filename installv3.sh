@@ -1554,9 +1554,15 @@ start_services() {
         if ! pgrep -f "HiveMetaStore" >/dev/null; then
             info "Starting Hive Metastore..."
             ensure_service_running "mysql" "mysqld" "MySQL not started"
-            nohup "$INSTALL_DIR/hive/bin/hive" --service metastore \
+            JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 \
+                nohup "$INSTALL_DIR/hive/bin/hive" --service metastore \
                 > "$INSTALL_DIR/hive/metastore.log" 2>&1 &
-            sleep 2
+            sleep 5
+            if pgrep -f "HiveMetaStore" > /dev/null; then
+                success "Hive Metastore started"
+            else
+                warn "Hive Metastore may have failed to start. Check: $INSTALL_DIR/hive/metastore.log"
+            fi
         fi
     fi
     
