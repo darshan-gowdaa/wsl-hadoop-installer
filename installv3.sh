@@ -142,8 +142,8 @@ validate_hive_installation() {
     [ -x "$hive_home/bin/hive" ] || return 1
     [ -f "$hive_site" ] || return 1
 
-    if grep -q '<name>hive.metastore.uris</name>' "$hive_site" 2>/dev/null; then
-        warn "Found hive.metastore.uris in hive-site.xml; this can break Hive CLI when metastore daemon is not up"
+    if ! grep -q '<name>hive.metastore.uris</name>' "$hive_site" 2>/dev/null; then
+        warn "hive.metastore.uris missing from hive-site.xml; Hive CLI needs metastore daemon"
         return 1
     fi
 
@@ -170,8 +170,8 @@ validate_hive_installation() {
         return 1
     fi
 
-    # Only run smoke test if HDFS is already running (don't start it just for validation)
-    if pgrep -f "NameNode" >/dev/null && nc -z localhost 9000 2>/dev/null; then
+    # Only run smoke test if HDFS and metastore daemon are already running
+    if pgrep -f "NameNode" >/dev/null && nc -z localhost 9000 2>/dev/null && nc -z localhost 9083 2>/dev/null; then
         if ! timeout 120 env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/hive" -S -e "show databases;" >/dev/null 2>>"$LOG_FILE"; then
             warn "Hive smoke test failed (show databases)"
             return 1
@@ -886,6 +886,10 @@ SQL
         <name>hive.exec.scratchdir</name>
         <value>/tmp/hive</value>
     </property>
+    <property>
+        <name>hive.metastore.uris</name>
+        <value>thrift://localhost:9083</value>
+    </property>
 </configuration>
 HIVESITE
 
@@ -910,8 +914,8 @@ EOF
     # Ensure schema is actually valid and consistent, not just partially initialized.
     repair_hive_metastore_schema
 
-    # Ensure HDFS is running — Hive needs it to initialize warehouse/scratch dirs
-    info "Ensuring HDFS is running for Hive smoke test..."
+    # Ensure HDFS is running — Hive needs it for warehouse/scratch dirs
+    info "Ensuring HDFS is running for Hive..."
     ensure_service_running "ssh" "sshd" "SSH required for HDFS"
     if ! pgrep -f "NameNode" >/dev/null; then
         "$HADOOP_HOME/sbin/start-dfs.sh" &>/dev/null || true
@@ -920,6 +924,28 @@ EOF
     "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode wait &>/dev/null || true
     "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode leave &>/dev/null || true
     setup_hdfs_directories
+
+    # Start Hive Metastore daemon — the CLI connects via thrift://localhost:9083
+    if ! pgrep -f "HiveMetaStore" >/dev/null; then
+        info "Starting Hive Metastore daemon..."
+        JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 nohup "$HIVE_HOME/bin/hive" --service metastore >>"$LOG_FILE" 2>&1 &
+        local ms_pid=$!
+        # Wait for metastore to be ready (up to 30 seconds)
+        local wait_count=0
+        while [ $wait_count -lt 30 ]; do
+            if nc -z localhost 9083 2>/dev/null; then
+                success "Hive Metastore is ready on port 9083"
+                break
+            fi
+            sleep 1
+            ((wait_count++))
+        done
+        if [ $wait_count -ge 30 ]; then
+            warn "Hive Metastore did not start within 30 seconds"
+        fi
+    else
+        info "Hive Metastore already running"
+    fi
 
     info "Running Hive smoke test..."
     if timeout 120 env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/hive" -S -e "show databases;" >>"$LOG_FILE" 2>&1; then
