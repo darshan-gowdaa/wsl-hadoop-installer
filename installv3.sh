@@ -170,9 +170,12 @@ validate_hive_installation() {
         return 1
     fi
 
-    if ! timeout 120 env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/hive" -S -e "show databases;" >/dev/null 2>>"$LOG_FILE"; then
-        warn "Hive smoke test failed (show databases)"
-        return 1
+    # Only run smoke test if HDFS is already running (don't start it just for validation)
+    if pgrep -f "NameNode" >/dev/null && nc -z localhost 9000 2>/dev/null; then
+        if ! timeout 120 env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/hive" -S -e "show databases;" >/dev/null 2>>"$LOG_FILE"; then
+            warn "Hive smoke test failed (show databases)"
+            return 1
+        fi
     fi
 
     return 0
@@ -906,6 +909,17 @@ EOF
 
     # Ensure schema is actually valid and consistent, not just partially initialized.
     repair_hive_metastore_schema
+
+    # Ensure HDFS is running — Hive needs it to initialize warehouse/scratch dirs
+    info "Ensuring HDFS is running for Hive smoke test..."
+    ensure_service_running "ssh" "sshd" "SSH required for HDFS"
+    if ! pgrep -f "NameNode" >/dev/null; then
+        "$HADOOP_HOME/sbin/start-dfs.sh" &>/dev/null || true
+        sleep 5
+    fi
+    "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode wait &>/dev/null || true
+    "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode leave &>/dev/null || true
+    setup_hdfs_directories
 
     info "Running Hive smoke test..."
     if timeout 120 env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/hive" -S -e "show databases;" >>"$LOG_FILE" 2>&1; then
