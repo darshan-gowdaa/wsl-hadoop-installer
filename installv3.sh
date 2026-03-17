@@ -605,6 +605,9 @@ install_hive() {
     
     echo -e "\n${BOLD}Installing Hive ${HIVE_VERSION}${NC}"
     
+    # Verify Java 8 exists (Hive 3.x requires Java 8 due to URLClassLoader incompatibility with Java 9+)
+    check_java_version 8
+    
     if ! execute_with_spinner "Updating package lists" sudo apt-get update -qq; then
         warn "Package update had warnings, continuing..."
     fi
@@ -779,6 +782,15 @@ export HIVE_CONF_DIR=$HIVE_HOME/conf
 export HIVE_AUX_JARS_PATH=$HIVE_HOME/lib
 EOF
     chmod +x "$HIVE_HOME/conf/hive-env.sh"
+
+    # Initialize Hive metastore schema with Java 8
+    info "Initializing Hive metastore schema..."
+    if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/schematool" -dbType mysql -initSchema 2>&1 | tee -a "$LOG_FILE"; then
+        success "Hive metastore schema initialized"
+    else
+        warn "Schema init had warnings (may already exist). Trying -validate instead..."
+        JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/schematool" -dbType mysql -validate 2>&1 | tee -a "$LOG_FILE" || true
+    fi
 
     mark_done "hive_full"
     success "Hive installed and configured"
