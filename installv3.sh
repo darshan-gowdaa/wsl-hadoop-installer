@@ -170,7 +170,7 @@ validate_hive_installation() {
         return 1
     fi
 
-    if ! JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/hive" -S -e "show databases;" >/dev/null 2>>"$LOG_FILE"; then
+    if ! timeout 120 env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/hive" -S -e "show databases;" >/dev/null 2>>"$LOG_FILE"; then
         warn "Hive smoke test failed (show databases)"
         return 1
     fi
@@ -186,7 +186,8 @@ repair_hive_metastore_schema() {
 
     if [ -n "$schema_version" ]; then
         info "Found Hive metastore schema version: $schema_version"
-        if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate 2>&1 | tee -a "$LOG_FILE"; then
+        JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate 2>&1 | tee -a "$LOG_FILE"
+        if [ "${PIPESTATUS[0]}" -eq 0 ]; then
             success "Hive metastore schema validation passed"
             return 0
         fi
@@ -205,13 +206,15 @@ SQL
         error "Failed to recreate metastore database"
     fi
 
-    if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -initSchema 2>&1 | tee -a "$LOG_FILE"; then
+    JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -initSchema 2>&1 | tee -a "$LOG_FILE"
+    if [ "${PIPESTATUS[0]}" -eq 0 ]; then
         success "Hive metastore schema initialized"
     else
         error "Hive metastore schema initialization failed. Check $LOG_FILE"
     fi
 
-    if ! JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate 2>&1 | tee -a "$LOG_FILE"; then
+    JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate 2>&1 | tee -a "$LOG_FILE"
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
         error "Hive metastore schema validation failed after rebuild. Check $LOG_FILE"
     fi
 }
@@ -244,7 +247,8 @@ run_install_workflow() {
 }
 
 safe_execute() {
-    if "$@" 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+    "$@" 2>&1 | tee -a "$LOG_FILE" >/dev/null
+    if [ "${PIPESTATUS[0]}" -eq 0 ]; then
         return 0
     else
         warn "Non-critical error in: $*"
@@ -904,7 +908,7 @@ EOF
     repair_hive_metastore_schema
 
     info "Running Hive smoke test..."
-    if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/hive" -S -e "show databases;" >>"$LOG_FILE" 2>&1; then
+    if timeout 120 env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/hive" -S -e "show databases;" >>"$LOG_FILE" 2>&1; then
         success "Hive query smoke test passed"
     else
         warn "Hive smoke test failed. Last Hive log lines:"
