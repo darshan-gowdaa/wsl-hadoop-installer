@@ -1646,6 +1646,8 @@ update_system() {
         fi
     fi
     
+    apply_hadoop_runtime_tuning "$INSTALL_DIR/hadoop"
+    
     success "System update completed."
     read -p "Press Enter to continue..."
 }
