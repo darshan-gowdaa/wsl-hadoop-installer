@@ -73,6 +73,53 @@ skip_if_installed() {
     return 1
 }
 
+resolve_install_dir() {
+    local primary_dir="$INSTALL_DIR"
+    local fallback_dirs=("$HOME/.local/bigdata" "/var/tmp/$USER-bigdata")
+    local selected=""
+    local fallback_selected=""
+    local fs_type=""
+
+    is_problematic_fs() {
+        case "$1" in
+            vboxsf|9p|cifs|fuseblk) return 0 ;;
+            *) return 1 ;;
+        esac
+    }
+
+    for candidate in "$primary_dir" "${fallback_dirs[@]}"; do
+        mkdir -p "$candidate" 2>/dev/null || continue
+        if ! touch "$candidate/.installer_write_test" 2>/dev/null; then
+            continue
+        fi
+        rm -f "$candidate/.installer_write_test" 2>/dev/null || true
+
+        fs_type=$(df -PT "$candidate" 2>/dev/null | awk 'NR==2 {print $2}')
+        if [ -z "$fs_type" ]; then
+            fs_type="unknown"
+        fi
+
+        if is_problematic_fs "$fs_type"; then
+            [ -z "$fallback_selected" ] && fallback_selected="$candidate"
+            continue
+        fi
+
+        selected="$candidate"
+        break
+    done
+
+    if [ -z "$selected" ]; then
+        selected="$fallback_selected"
+    fi
+
+    [ -n "$selected" ] || error "No writable storage path found for installation"
+
+    if [ "$selected" != "$INSTALL_DIR" ]; then
+        warn "Primary install path may be on shared/virtualized storage. Switching install path to: $selected"
+        INSTALL_DIR="$selected"
+    fi
+}
+
 configure_dns_server() {
     local dns_name=$1
     local primary_dns=$2
@@ -125,6 +172,91 @@ setup_hdfs_directories() {
     info "Creating HDFS directories..."
     "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/$USER /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null || true
     "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null || true
+}
+
+validate_hive_installation() {
+    local hive_home="${HIVE_HOME:-$INSTALL_DIR/hive}"
+    local hive_site="$hive_home/conf/hive-site.xml"
+    local jdbc_jar="$hive_home/lib/mysql-connector-java-8.0.30.jar"
+    local schema_version
+
+    [ -x "$hive_home/bin/hive" ] || return 1
+    [ -f "$hive_site" ] || return 1
+
+    if ! grep -q '<name>hive.metastore.uris</name>' "$hive_site" 2>/dev/null; then
+        warn "hive.metastore.uris missing from hive-site.xml; Hive CLI needs metastore daemon"
+        return 1
+    fi
+
+    if [ ! -f "$jdbc_jar" ] || [ "$(stat -c%s "$jdbc_jar" 2>/dev/null || echo 0)" -lt 1000000 ]; then
+        warn "MySQL JDBC connector is missing or looks corrupted"
+        return 1
+    fi
+
+    if command -v jar >/dev/null 2>&1 && ! jar tf "$jdbc_jar" >/dev/null 2>&1; then
+        warn "MySQL JDBC connector failed integrity check"
+        return 1
+    fi
+
+    ensure_service_running "mysql" "mysqld" "MySQL is required for Hive metastore checks" || return 1
+
+    schema_version=$(sudo mysql -N -s -u root -e "SELECT SCHEMA_VERSION FROM metastore.VERSION LIMIT 1" 2>/dev/null || true)
+    if [ -z "$schema_version" ]; then
+        warn "Hive metastore VERSION table is missing or empty"
+        return 1
+    fi
+
+    if ! JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate >/dev/null 2>>"$LOG_FILE"; then
+        warn "Hive metastore schema validation failed"
+        return 1
+    fi
+
+    if pgrep -f "NameNode" >/dev/null && nc -z localhost 9000 2>/dev/null && nc -z localhost 9083 2>/dev/null; then
+        if ! timeout 120 env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/hive" -S -e "show databases;" >/dev/null 2>>"$LOG_FILE"; then
+            warn "Hive smoke test failed (show databases)"
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+repair_hive_metastore_schema() {
+    local hive_home="${HIVE_HOME:-$INSTALL_DIR/hive}"
+    local schema_version
+
+    schema_version=$(sudo mysql -N -s -u root -e "SELECT SCHEMA_VERSION FROM metastore.VERSION LIMIT 1" 2>/dev/null || true)
+
+    if [ -n "$schema_version" ]; then
+        info "Found Hive metastore schema version: $schema_version"
+        if execute_with_spinner "Validating Hive metastore schema" \
+            env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate; then
+            return 0
+        fi
+        warn "Hive schema exists but validation failed. Rebuilding metastore schema..."
+    else
+        info "Hive metastore schema not found. Initializing..."
+    fi
+
+    if ! sudo mysql -u root <<'SQL' 2>/dev/null; then
+DROP DATABASE IF EXISTS metastore;
+CREATE DATABASE metastore;
+GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'localhost';
+GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'127.0.0.1';
+FLUSH PRIVILEGES;
+SQL
+        error "Failed to recreate metastore database"
+    fi
+
+    if ! execute_with_spinner "Initializing Hive metastore schema" \
+        env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -initSchema; then
+        error "Hive metastore schema initialization failed. Check $LOG_FILE"
+    fi
+
+    if ! execute_with_spinner "Validating Hive metastore schema" \
+        env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/schematool" -dbType mysql -validate; then
+        error "Hive metastore schema validation failed after rebuild. Check $LOG_FILE"
+    fi
 }
 
 check_service_port() {
@@ -339,10 +471,15 @@ preflight_checks() {
         warn "Low memory detected (${mem_gb}GB). Minimum 6GB recommended."
     fi
     
-    # Check disk space
-    local avail_gb=$(df -BG "$HOME" 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/G//' || echo "0")
-    if [ "$avail_gb" -lt 12 ]; then
-        error "Insufficient disk space. Need 12GB+, available: ${avail_gb}GB"
+    # Check disk space (portable parsing for WSL, VM, and shared mounts)
+    local avail_kb=$(df -Pk "$INSTALL_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
+    if [[ "$avail_kb" =~ ^[0-9]+$ ]]; then
+        local avail_gb=$(( avail_kb / 1024 / 1024 ))
+        if [ "$avail_gb" -lt 12 ]; then
+            error "Insufficient disk space. Need 12GB+, available: ${avail_gb}GB"
+        fi
+    else
+        warn "Could not determine available disk space reliably on this filesystem. Continuing..."
     fi
     
     success "Pre-flight checks passed"
@@ -360,12 +497,13 @@ install_system_deps() {
         warn "Package update had warnings, continuing..."
     fi
     
-    local pkgs=(openjdk-11-jdk openjdk-17-jdk wget ssh netcat-openbsd vim mysql-server rsync)
+    local pkgs=(openjdk-8-jdk openjdk-11-jdk openjdk-17-jdk wget ssh netcat-openbsd vim mysql-server rsync)
     if ! execute_with_spinner "Installing packages" sudo apt-get install -y "${pkgs[@]}" -qq; then
         error "Package installation failed. Check your internet connection and try again."
     fi
     
     # Verify Java installation
+    check_java_version 8
     check_java_version 11
     check_java_version 17
     
@@ -564,7 +702,15 @@ install_kafka() {
     fi
     
     rm -f kafka && ln -s "kafka_2.13-${KAFKA_VERSION}" kafka
-    mkdir -p "$INSTALL_DIR/kafka/kraft-logs"
+
+    local kafka_log_dir="$INSTALL_DIR/kafka/kraft-logs"
+    mkdir -p "$kafka_log_dir"
+    if ! touch "$kafka_log_dir/.write_test" 2>/dev/null; then
+        warn "Kafka storage path is not writable. Trying fallback location..."
+        kafka_log_dir="$HOME/.cache/kafka-kraft-logs"
+        mkdir -p "$kafka_log_dir" || error "Failed to create fallback Kafka storage directory"
+    fi
+    rm -f "$kafka_log_dir/.write_test" 2>/dev/null || true
     
     # Generate cluster ID
     local cid
@@ -584,19 +730,31 @@ process.roles=broker,controller
 node.id=1
 controller.quorum.voters=1@localhost:9093
 listeners=PLAINTEXT://localhost:9092,CONTROLLER://localhost:9093
+inter.broker.listener.name=PLAINTEXT
 controller.listener.names=CONTROLLER
 log.dirs=$INSTALL_DIR/kafka/kraft-logs
 num.partitions=1
 offsets.topic.replication.factor=1
 transaction.state.log.replication.factor=1
+transaction.state.log.min.isr=1
 EOF
+
+    sed -i "s|^log.dirs=.*|log.dirs=$kafka_log_dir|" "$INSTALL_DIR/kafka/config/kraft-server.properties"
     
     # Format storage
-    if [ ! -f "$INSTALL_DIR/kafka/kraft-logs/meta.properties" ]; then
+    if [ ! -f "$kafka_log_dir/meta.properties" ]; then
         if ! JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
             "$INSTALL_DIR/kafka/bin/kafka-storage.sh" format -t "$cid" \
-            -c "$INSTALL_DIR/kafka/config/kraft-server.properties" &>/dev/null; then
-            warn "Kafka storage format had warnings"
+            -c "$INSTALL_DIR/kafka/config/kraft-server.properties" 2>&1 | tee -a "$LOG_FILE" > /dev/null; then
+            warn "Kafka storage format failed on primary path. Retrying with clean fallback..."
+            kafka_log_dir="/var/tmp/$USER-kafka-kraft-logs"
+            mkdir -p "$kafka_log_dir" || error "Kafka storage format failed and fallback directory could not be created"
+            sed -i "s|^log.dirs=.*|log.dirs=$kafka_log_dir|" "$INSTALL_DIR/kafka/config/kraft-server.properties"
+            if ! JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+                "$INSTALL_DIR/kafka/bin/kafka-storage.sh" format -t "$cid" \
+                -c "$INSTALL_DIR/kafka/config/kraft-server.properties" 2>&1 | tee -a "$LOG_FILE" > /dev/null; then
+                error "Kafka storage format failed. Storage path may be unavailable on this VM/shared filesystem. Check $LOG_FILE"
+            fi
         fi
     fi
     
@@ -645,10 +803,28 @@ install_pig() {
 }
 
 install_hive() {
-    skip_if_installed "hive_full" "Hive" "$INSTALL_DIR/apache-hive-${HIVE_VERSION}-bin" "true" && return
+    export HIVE_HOME="$INSTALL_DIR/hive"
+    if skip_if_installed "hive_full" "Hive" "$INSTALL_DIR/apache-hive-${HIVE_VERSION}-bin" "true"; then
+        if validate_hive_installation; then
+            success "Hive installation health check passed"
+            return
+        fi
+        warn "Hive is marked installed but health checks failed. Re-running Hive setup..."
+        sed -i '/^hive_full$/d' "$STATE_FILE" 2>/dev/null || true
+    fi
     
     echo -e "\n${BOLD}Installing Hive ${HIVE_VERSION}${NC}"
     
+    # Hive 3.x needs Java 8
+    check_java_version 8
+
+    if ! execute_with_spinner "Updating package lists" sudo apt-get update -qq; then
+        warn "Package update had warnings, continuing..."
+    fi
+    if ! execute_with_spinner "Upgrading system packages" sudo apt-get upgrade -y -qq; then
+        warn "Package upgrade had warnings, continuing..."
+    fi
+
     cd "$INSTALL_DIR"
     
     if [ ! -d "apache-hive-${HIVE_VERSION}-bin" ] || [ ! -d "apache-hive-${HIVE_VERSION}-bin/bin" ]; then
@@ -662,37 +838,227 @@ install_hive() {
     fi
     
     rm -f hive && ln -s "apache-hive-${HIVE_VERSION}-bin" hive
-    
-    # MySQL setup - with proper error checking
-    ensure_service_running "mysql" "mysqld" "MySQL is required for Hive. Run: sudo service mysql start" || \
-        error "MySQL is required for Hive but failed to start"
-    sleep 3
-    
-    sudo mysql -u root <<'SQL' 2>/dev/null || true
+
+    export HIVE_HOME="$INSTALL_DIR/hive"
+    export HADOOP_HOME="$INSTALL_DIR/hadoop"
+
+    if ! pgrep -x mysqld > /dev/null; then
+        info "Starting MySQL service..."
+
+        if ! dpkg -l | grep -q "mysql-server" || ! command -v mysqld > /dev/null; then
+            warn "MySQL server missing. Installing..."
+            sudo apt-get update -qq
+            sudo apt-get install -y mysql-server -qq
+        fi
+
+        if [ ! -d "/var/run/mysqld" ]; then
+            sudo mkdir -p /var/run/mysqld
+            sudo chown mysql:mysql /var/run/mysqld
+        fi
+
+        sudo usermod -d /var/lib/mysql mysql 2>/dev/null || true
+
+        if sudo service mysql start 2>/dev/null; then
+            success "MySQL started"
+        elif sudo /etc/init.d/mysql start 2>/dev/null; then
+            success "MySQL started via init.d"
+        else
+            warn "Standard start failed, trying to initialize and retry..."
+            sudo mysqld --initialize-insecure --user=mysql 2>/dev/null || true
+            if sudo service mysql start 2>/dev/null; then
+                success "MySQL started after initialization"
+            else
+                warn "Trying direct mysqld execution..."
+                sudo mysqld --user=mysql --daemonize \
+                    --pid-file=/var/run/mysqld/mysqld.pid 2>/dev/null || true
+            fi
+        fi
+
+        sleep 5
+
+        if ! pgrep -x mysqld > /dev/null; then
+            sudo mysqld_safe --skip-grant-tables &
+            sleep 5
+            pgrep -x mysqld > /dev/null || \
+                error "Failed to start MySQL. Try: sudo mkdir -p /var/run/mysqld && sudo chown mysql:mysql /var/run/mysqld && sudo service mysql start"
+        fi
+    else
+        info "MySQL already running"
+    fi
+
+    info "Waiting for MySQL to be ready..."
+    local mysql_ready=false
+    for i in {1..30}; do
+        if sudo mysql -u root -e "SELECT 1" > /dev/null 2>&1; then
+            mysql_ready=true
+            success "MySQL is ready"
+            break
+        fi
+        sleep 1
+    done
+    [ "$mysql_ready" = false ] && error "MySQL did not become ready in time"
+
+    info "Creating Hive metastore database and user..."
+    if ! sudo mysql -u root <<'SQL' 2>/dev/null; then
 CREATE DATABASE IF NOT EXISTS metastore;
-CREATE USER IF NOT EXISTS 'hiveuser'@'localhost' IDENTIFIED BY 'hivepassword';
+CREATE USER IF NOT EXISTS 'hiveuser'@'localhost' IDENTIFIED WITH mysql_native_password BY 'hivepassword';
+CREATE USER IF NOT EXISTS 'hiveuser'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY 'hivepassword';
+ALTER USER 'hiveuser'@'localhost' IDENTIFIED WITH mysql_native_password BY 'hivepassword';
+ALTER USER 'hiveuser'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY 'hivepassword';
 GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'localhost';
+GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'127.0.0.1';
 FLUSH PRIVILEGES;
 SQL
-    
-    # Download MySQL connector
-    cd "$INSTALL_DIR/hive/lib"
-    [ ! -f "mysql-connector-java-8.0.30.jar" ] && \
-        wget -q https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.30/mysql-connector-java-8.0.30.jar
-    
-    # Config
-    cat > "$INSTALL_DIR/hive/conf/hive-site.xml" <<EOF
-<?xml version="1.0"?>
+        error "Failed to create Hive metastore database. Check MySQL connection."
+    fi
+    success "Metastore database created"
+
+    info "Ensuring MySQL JDBC connector is available..."
+    cd "$HIVE_HOME/lib"
+    local jdbc_jar="mysql-connector-java-8.0.30.jar"
+    local jdbc_url="https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.30/mysql-connector-java-8.0.30.jar"
+    local jdbc_size=$(stat -c%s "$jdbc_jar" 2>/dev/null || echo 0)
+    if [ ! -f "$jdbc_jar" ] || [ "$jdbc_size" -lt 1000000 ]; then
+        rm -f "$jdbc_jar"
+        wget -q "$jdbc_url" -O "$jdbc_jar" || error "Failed to download $jdbc_jar"
+    fi
+    if command -v jar >/dev/null 2>&1 && ! jar tf "$jdbc_jar" >/dev/null 2>&1; then
+        rm -f "$jdbc_jar"
+        wget -q "$jdbc_url" -O "$jdbc_jar" || error "Failed to re-download valid $jdbc_jar"
+        command -v jar >/dev/null 2>&1 && jar tf "$jdbc_jar" >/dev/null 2>&1 || error "$jdbc_jar is invalid after re-download"
+    fi
+
+    rm -f "$HIVE_HOME/lib/guava-19.0.jar" 2>/dev/null || true
+    cp "$HADOOP_HOME/share/hadoop/common/lib/guava-"*.jar "$HIVE_HOME/lib/" 2>/dev/null || true
+
+    if ! ls "$HIVE_HOME"/lib/commons-collections-3*.jar &>/dev/null; then
+        local cc_found=false
+        for dir in "$HADOOP_HOME"/share/hadoop/common/lib "$HADOOP_HOME"/share/hadoop/hdfs/lib "$HADOOP_HOME"/share/hadoop/mapreduce/lib; do
+            if ls "$dir"/commons-collections-3*.jar &>/dev/null 2>&1; then
+                cp "$dir"/commons-collections-3*.jar "$HIVE_HOME/lib/"
+                cc_found=true
+                break
+            fi
+        done
+        if [ "$cc_found" = "false" ]; then
+            info "Downloading commons-collections-3.2.2.jar from Maven Central..."
+            wget -q "https://repo1.maven.org/maven2/commons-collections/commons-collections/3.2.2/commons-collections-3.2.2.jar" \
+                -O "$HIVE_HOME/lib/commons-collections-3.2.2.jar" || \
+            curl -fSL "https://repo1.maven.org/maven2/commons-collections/commons-collections/3.2.2/commons-collections-3.2.2.jar" \
+                -o "$HIVE_HOME/lib/commons-collections-3.2.2.jar" || \
+            error "Failed to download commons-collections-3.2.2.jar"
+        fi
+        success "commons-collections-3.x added to Hive lib"
+    fi
+
+    rm -f "$HIVE_HOME/lib/log4j-slf4j-impl-"*.jar 2>/dev/null || true
+
+    mkdir -p "$HIVE_HOME/conf"
+    cat > "$HIVE_HOME/conf/hive-site.xml" <<'HIVESITE'
+<?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <property><name>javax.jdo.option.ConnectionURL</name>
-        <value>jdbc:mysql://localhost:3306/metastore?createDatabaseIfNotExist=true&amp;useSSL=false</value></property>
-    <property><name>javax.jdo.option.ConnectionDriverName</name><value>com.mysql.cj.jdbc.Driver</value></property>
-    <property><name>javax.jdo.option.ConnectionUserName</name><value>hiveuser</value></property>
-    <property><name>javax.jdo.option.ConnectionPassword</name><value>hivepassword</value></property>
-    <property><name>hive.metastore.uris</name><value>thrift://localhost:9083</value></property>
-    <property><name>datanucleus.schema.autoCreateAll</name><value>true</value></property>
+    <property>
+        <name>javax.jdo.option.ConnectionURL</name>
+        <value>jdbc:mysql://localhost:3306/metastore?createDatabaseIfNotExist=true&amp;useSSL=false&amp;allowPublicKeyRetrieval=true</value>
+    </property>
+    <property>
+        <name>javax.jdo.option.ConnectionDriverName</name>
+        <value>com.mysql.cj.jdbc.Driver</value>
+    </property>
+    <property>
+        <name>javax.jdo.option.ConnectionUserName</name>
+        <value>hiveuser</value>
+    </property>
+    <property>
+        <name>javax.jdo.option.ConnectionPassword</name>
+        <value>hivepassword</value>
+    </property>
+    <property>
+        <name>hive.metastore.warehouse.dir</name>
+        <value>/user/hive/warehouse</value>
+    </property>
+    <property>
+        <name>hive.server2.thrift.port</name>
+        <value>10000</value>
+    </property>
+    <property>
+        <name>hive.server2.thrift.bind.host</name>
+        <value>localhost</value>
+    </property>
+    <property>
+        <name>hive.server2.enable.doAs</name>
+        <value>false</value>
+    </property>
+    <property>
+        <name>hive.metastore.schema.verification</name>
+        <value>false</value>
+    </property>
+    <property>
+        <name>datanucleus.schema.autoCreateAll</name>
+        <value>false</value>
+    </property>
+    <property>
+        <name>hive.exec.scratchdir</name>
+        <value>/tmp/hive</value>
+    </property>
+    <property>
+        <name>hive.metastore.uris</name>
+        <value>thrift://localhost:9083</value>
+    </property>
 </configuration>
+HIVESITE
+
+    cat > "$HIVE_HOME/conf/hive-env.sh" <<EOF
+export HADOOP_HOME=$HADOOP_HOME
+export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+export HIVE_CONF_DIR=$HIVE_HOME/conf
+export HIVE_AUX_JARS_PATH=$HIVE_HOME/lib
 EOF
+    chmod +x "$HIVE_HOME/conf/hive-env.sh"
+
+    local hadoop_env="$HADOOP_HOME/etc/hadoop/hadoop-env.sh"
+    if [ -f "$hadoop_env" ] && grep -q '^export JAVA_HOME=/usr/lib/jvm' "$hadoop_env"; then
+        sed -i 's|^export JAVA_HOME=.*|export JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/java-11-openjdk-amd64}|' "$hadoop_env"
+        success "Patched hadoop-env.sh to respect Hive's Java 8 override"
+    fi
+
+    repair_hive_metastore_schema
+
+    ensure_service_running "ssh" "sshd" "SSH required for HDFS"
+    if ! pgrep -f "NameNode" >/dev/null; then
+        execute_with_spinner "Starting HDFS" "$HADOOP_HOME/sbin/start-dfs.sh" || true
+        sleep 3
+    fi
+    "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode wait &>/dev/null || true
+    "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode leave &>/dev/null || true
+    setup_hdfs_directories
+
+    if ! pgrep -f "HiveMetaStore" >/dev/null; then
+        JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 nohup "$HIVE_HOME/bin/hive" --service metastore >>"$LOG_FILE" 2>&1 &
+        (
+            for i in $(seq 1 60); do
+                nc -z localhost 9083 2>/dev/null && exit 0
+                sleep 1
+            done
+            exit 1
+        ) &
+        spinner $! "Starting Hive Metastore daemon"
+        if [ $? -ne 0 ]; then
+            warn "Hive Metastore did not start within 60 seconds. Check $LOG_FILE"
+            tail -n 10 "$LOG_FILE" 2>/dev/null || true
+        fi
+    else
+        success "Hive Metastore already running"
+    fi
+
+    if execute_with_spinner "Running Hive smoke test" \
+        timeout 120 env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/hive" -S -e "show databases;"; then
+        :
+    else
+        warn "Hive smoke test failed. Last log lines:"
+        tail -n 10 "$LOG_FILE" || true
+        error "Hive installed but smoke test failed. See $LOG_FILE for metastore/JDBC errors"
+    fi
     
     mark_done "hive_full"
     success "Hive installed and configured"
@@ -925,6 +1291,21 @@ export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$
 # Kafka wrapper (Java 17)
 kafka-server-start() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-server-start.sh "$@"; }
 kafka-topics() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-topics.sh "$@"; }
+kafka-console-producer() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-console-producer.sh "$@"; }
+kafka-console-consumer() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-console-consumer.sh "$@"; }
+kafka-configs() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-configs.sh "$@"; }
+kafka-consumer-groups() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-consumer-groups.sh "$@"; }
+
+# Hive wrapper (Java 8 + auto-start metastore)
+hive() {
+    if ! pgrep -f HiveMetaStore > /dev/null 2>&1; then
+        echo "Starting Hive Metastore..."
+        sudo service mysql start &>/dev/null
+        JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 nohup $HIVE_HOME/bin/hive --service metastore &>/dev/null &
+        sleep 3
+    fi
+    JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 $HIVE_HOME/bin/hive "$@"
+}
 BASHRC
     fi
     
@@ -954,8 +1335,10 @@ export HADOOP_HOME="$INSTALL_DIR/hadoop"
 "$HADOOP_HOME/bin/hdfs" dfs -mkdir -p /user/$USER /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null
 "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null
 
-nohup "$INSTALL_DIR/hive/bin/hive" --service metastore &>/dev/null &
-JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 nohup "$INSTALL_DIR/kafka/bin/kafka-server-start.sh" "$INSTALL_DIR/kafka/config/kraft-server.properties" &>/dev/null &
+JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 nohup "$INSTALL_DIR/hive/bin/hive" --service metastore &>/dev/null &
+if [ -d "$INSTALL_DIR/kafka" ]; then
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 nohup "$INSTALL_DIR/kafka/bin/kafka-server-start.sh" "$INSTALL_DIR/kafka/config/kraft-server.properties" >> "$INSTALL_DIR/kafka/kafka.log" 2>&1 &
+fi
 
 echo "✓ All services started"
 echo "  HDFS: http://localhost:9870"
@@ -1388,6 +1771,7 @@ start_services() {
     
     # Ensure SSH is running
     ensure_service_running "ssh" "sshd" "SSH service not started"
+    ensure_service_running "mysql" "mysqld" "MySQL service not started"
     
     # Test SSH connectivity
     if ! ssh -o BatchMode=yes -o ConnectTimeout=5 localhost exit &>/dev/null; then
@@ -1434,9 +1818,14 @@ start_services() {
         if ! pgrep -f "HiveMetaStore" >/dev/null; then
             info "Starting Hive Metastore..."
             ensure_service_running "mysql" "mysqld" "MySQL not started"
-            nohup "$INSTALL_DIR/hive/bin/hive" --service metastore \
+            JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 nohup "$INSTALL_DIR/hive/bin/hive" --service metastore \
                 > "$INSTALL_DIR/hive/metastore.log" 2>&1 &
-            sleep 2
+            sleep 6
+            if pgrep -f "HiveMetaStore" > /dev/null && nc -z localhost 9083 2>/dev/null; then
+                success "Hive Metastore started"
+            else
+                warn "Hive Metastore may have failed to start. Check: $INSTALL_DIR/hive/metastore.log"
+            fi
         fi
     fi
     
@@ -1448,7 +1837,12 @@ start_services() {
                 nohup "$INSTALL_DIR/kafka/bin/kafka-server-start.sh" \
                 "$INSTALL_DIR/kafka/config/kraft-server.properties" \
                 > "$INSTALL_DIR/kafka/kafka.log" 2>&1 &
-            sleep 3
+            sleep 5
+            if nc -z localhost 9092 2>/dev/null; then
+                success "Kafka started"
+            else
+                warn "Kafka may have failed to start. Check: $INSTALL_DIR/kafka/kafka.log"
+            fi
         fi
     fi
     

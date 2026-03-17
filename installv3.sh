@@ -634,19 +634,21 @@ process.roles=broker,controller
 node.id=1
 controller.quorum.voters=1@localhost:9093
 listeners=PLAINTEXT://localhost:9092,CONTROLLER://localhost:9093
+inter.broker.listener.name=PLAINTEXT
 controller.listener.names=CONTROLLER
 log.dirs=$INSTALL_DIR/kafka/kraft-logs
 num.partitions=1
 offsets.topic.replication.factor=1
 transaction.state.log.replication.factor=1
+transaction.state.log.min.isr=1
 EOF
     
     # Format storage
     if [ ! -f "$INSTALL_DIR/kafka/kraft-logs/meta.properties" ]; then
         if ! JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
             "$INSTALL_DIR/kafka/bin/kafka-storage.sh" format -t "$cid" \
-            -c "$INSTALL_DIR/kafka/config/kraft-server.properties" &>/dev/null; then
-            warn "Kafka storage format had warnings"
+            -c "$INSTALL_DIR/kafka/config/kraft-server.properties" 2>&1 | tee -a "$LOG_FILE" > /dev/null; then
+            error "Kafka storage format failed - check that openjdk-17-jdk is installed"
         fi
     fi
     
@@ -1192,6 +1194,10 @@ export PATH=$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$KAFKA_HOME/bin:$
 # Kafka wrapper (Java 17)
 kafka-server-start() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-server-start.sh "$@"; }
 kafka-topics() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-topics.sh "$@"; }
+kafka-console-producer() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-console-producer.sh "$@"; }
+kafka-console-consumer() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-console-consumer.sh "$@"; }
+kafka-configs() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-configs.sh "$@"; }
+kafka-consumer-groups() { JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 kafka-consumer-groups.sh "$@"; }
 
 # Hive wrapper (Java 8 + auto-start metastore)
 hive() {
@@ -1233,7 +1239,9 @@ export HADOOP_HOME="$INSTALL_DIR/hadoop"
 "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null
 
 JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 nohup "$INSTALL_DIR/hive/bin/hive" --service metastore &>/dev/null &
-JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 nohup "$INSTALL_DIR/kafka/bin/kafka-server-start.sh" "$INSTALL_DIR/kafka/config/kraft-server.properties" &>/dev/null &
+if [ -d "$INSTALL_DIR/kafka" ]; then
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 nohup "$INSTALL_DIR/kafka/bin/kafka-server-start.sh" "$INSTALL_DIR/kafka/config/kraft-server.properties" >> "$INSTALL_DIR/kafka/kafka.log" 2>&1 &
+fi
 
 echo "✓ All services started"
 echo "  HDFS: http://localhost:9870"
@@ -1729,7 +1737,12 @@ start_services() {
                 nohup "$INSTALL_DIR/kafka/bin/kafka-server-start.sh" \
                 "$INSTALL_DIR/kafka/config/kraft-server.properties" \
                 > "$INSTALL_DIR/kafka/kafka.log" 2>&1 &
-            sleep 3
+            sleep 5
+            if nc -z localhost 9092 2>/dev/null; then
+                success "Kafka started"
+            else
+                warn "Kafka may have failed to start. Check: $INSTALL_DIR/kafka/kafka.log"
+            fi
         fi
     fi
     
