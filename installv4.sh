@@ -588,8 +588,33 @@ EOF
     success "System dependencies installed"
 }
 
+apply_hadoop_runtime_tuning() {
+    local hadoop_home=$1
+    local yarn_site="$hadoop_home/etc/hadoop/yarn-site.xml"
+    local mapred_site="$hadoop_home/etc/hadoop/mapred-site.xml"
+    local yarn_mem=$(($(free -m | awk '/^Mem:/{print $2}') * 70 / 100))
+    [ $yarn_mem -gt 4096 ] && yarn_mem=4096
+
+    if [ -f "$yarn_site" ]; then
+        if ! grep -q "yarn.scheduler.minimum-allocation-mb" "$yarn_site"; then
+            sed -i '/<\/configuration>/i\    <property><name>yarn.scheduler.minimum-allocation-mb<\/name><value>512<\/value><\/property>\n    <property><name>yarn.scheduler.maximum-allocation-mb<\/name><value>'"$yarn_mem"'<\/value><\/property>\n    <property><name>yarn.nodemanager.pmem-check-enabled<\/name><value>false<\/value><\/property>' "$yarn_site"
+            info "Applied YARN memory tuning to existing yarn-site.xml"
+        fi
+    fi
+
+    if [ -f "$mapred_site" ]; then
+        if ! grep -q "mapreduce.map.memory.mb" "$mapred_site"; then
+            sed -i '/<\/configuration>/i\    <property><name>mapreduce.map.memory.mb<\/name><value>1024<\/value><\/property>\n    <property><name>mapreduce.reduce.memory.mb<\/name><value>1024<\/value><\/property>\n    <property><name>mapreduce.map.java.opts<\/name><value>-Xmx820m<\/value><\/property>\n    <property><name>mapreduce.reduce.java.opts<\/name><value>-Xmx820m<\/value><\/property>' "$mapred_site"
+            info "Applied MapReduce memory tuning to existing mapred-site.xml"
+        fi
+    fi
+}
+
 install_hadoop() {
-    skip_if_installed "hadoop_full" "Hadoop" "$INSTALL_DIR/hadoop-${HADOOP_VERSION}" "true" && return
+    if skip_if_installed "hadoop_full" "Hadoop" "$INSTALL_DIR/hadoop-${HADOOP_VERSION}" "true"; then
+        apply_hadoop_runtime_tuning "$INSTALL_DIR/hadoop"
+        return
+    fi
     
     echo -e "\n${BOLD}Installing Hadoop ${HADOOP_VERSION}${NC}"
     
@@ -656,7 +681,10 @@ EOF
     <property><name>yarn.nodemanager.aux-services</name><value>mapreduce_shuffle</value></property>
     <property><name>yarn.resourcemanager.hostname</name><value>localhost</value></property>
     <property><name>yarn.nodemanager.resource.memory-mb</name><value>$yarn_mem</value></property>
+    <property><name>yarn.scheduler.minimum-allocation-mb</name><value>512</value></property>
+    <property><name>yarn.scheduler.maximum-allocation-mb</name><value>$yarn_mem</value></property>
     <property><name>yarn.nodemanager.vmem-check-enabled</name><value>false</value></property>
+    <property><name>yarn.nodemanager.pmem-check-enabled</name><value>false</value></property>
 </configuration>
 EOF
     
@@ -669,6 +697,10 @@ EOF
     <property><name>mapreduce.map.env</name><value>HADOOP_MAPRED_HOME=$HADOOP_HOME</value></property>
     <property><name>mapreduce.reduce.env</name><value>HADOOP_MAPRED_HOME=$HADOOP_HOME</value></property>
     <property><name>mapreduce.application.classpath</name><value>\$HADOOP_MAPRED_HOME/share/hadoop/mapreduce/*:\$HADOOP_MAPRED_HOME/share/hadoop/mapreduce/lib/*</value></property>
+    <property><name>mapreduce.map.memory.mb</name><value>1024</value></property>
+    <property><name>mapreduce.reduce.memory.mb</name><value>1024</value></property>
+    <property><name>mapreduce.map.java.opts</name><value>-Xmx820m</value></property>
+    <property><name>mapreduce.reduce.java.opts</name><value>-Xmx820m</value></property>
 </configuration>
 EOF
     
