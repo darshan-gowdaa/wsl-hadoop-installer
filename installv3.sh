@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 
 # WSL Hadoop Ecosystem - Interactive Menu Installer v3 (Optimized)
 # by github.com/darshan-gowdaa
@@ -305,7 +305,7 @@ install_system_deps() {
         warn "Package update had warnings, continuing..."
     fi
     
-    local pkgs=(openjdk-11-jdk openjdk-17-jdk wget ssh netcat-openbsd vim mysql-server rsync)
+    local pkgs=(openjdk-8-jdk openjdk-11-jdk openjdk-17-jdk wget ssh netcat-openbsd vim mysql-server rsync)
     if ! execute_with_spinner "Installing packages" sudo apt-get install -y "${pkgs[@]}" -qq; then
         error "Package installation failed. Check your internet connection and try again."
     fi
@@ -694,6 +694,9 @@ SQL
     rm -f "$HIVE_HOME/lib/guava-19.0.jar" 2>/dev/null || true
     cp "$HADOOP_HOME/share/hadoop/common/lib/guava-"*.jar "$HIVE_HOME/lib/" 2>/dev/null || true
 
+    # Fix SLF4J multiple bindings warning
+    rm -f "$HIVE_HOME/lib/log4j-slf4j-impl-"*.jar 2>/dev/null || true
+
     # hive-site.xml
     mkdir -p "$HIVE_HOME/conf"
     cat > "$HIVE_HOME/conf/hive-site.xml" <<'HIVESITE'
@@ -753,6 +756,7 @@ HIVESITE
     # hive-env.sh
     cat > "$HIVE_HOME/conf/hive-env.sh" <<EOF
 export HADOOP_HOME=$HADOOP_HOME
+export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
 export HIVE_CONF_DIR=$HIVE_HOME/conf
 export HIVE_AUX_JARS_PATH=$HIVE_HOME/lib
 EOF
