@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 
 # WSL Hadoop Ecosystem - Interactive Menu Installer v3 (Optimized)
 # by github.com/darshan-gowdaa
@@ -608,37 +608,156 @@ install_hive() {
     
     rm -f hive && ln -s "apache-hive-${HIVE_VERSION}-bin" hive
     
-    # MySQL setup - with proper error checking
-    ensure_service_running "mysql" "mysqld" "MySQL is required for Hive. Run: sudo service mysql start" || \
-        error "MySQL is required for Hive but failed to start"
-    sleep 3
-    
-    sudo mysql -u root <<'SQL' 2>/dev/null || true
+    # Set env vars
+    export HIVE_HOME="$INSTALL_DIR/hive"
+    export HADOOP_HOME="$INSTALL_DIR/hadoop"
+
+    # MySQL startup with robust fallbacks
+    if ! pgrep -x mysqld > /dev/null; then
+        info "Starting MySQL service..."
+
+        # Ensure mysql-server is installed
+        if ! dpkg -l | grep -q "mysql-server" || ! command -v mysqld > /dev/null; then
+            warn "MySQL server missing. Installing..."
+            sudo apt-get update -qq
+            sudo apt-get install -y mysql-server -qq
+        fi
+
+        # Ensure runtime directory exists
+        if [ ! -d "/var/run/mysqld" ]; then
+            sudo mkdir -p /var/run/mysqld
+            sudo chown mysql:mysql /var/run/mysqld
+        fi
+
+        sudo usermod -d /var/lib/mysql mysql 2>/dev/null || true
+
+        if sudo service mysql start 2>/dev/null; then
+            success "MySQL started"
+        elif sudo /etc/init.d/mysql start 2>/dev/null; then
+            success "MySQL started via init.d"
+        else
+            warn "Standard start failed, trying to initialize and retry..."
+            sudo mysqld --initialize-insecure --user=mysql 2>/dev/null || true
+            if sudo service mysql start 2>/dev/null; then
+                success "MySQL started after initialization"
+            else
+                warn "Trying direct mysqld execution..."
+                sudo mysqld --user=mysql --daemonize \
+                    --pid-file=/var/run/mysqld/mysqld.pid 2>/dev/null || true
+            fi
+        fi
+
+        sleep 5
+
+        if ! pgrep -x mysqld > /dev/null; then
+            sudo mysqld_safe --skip-grant-tables &
+            sleep 5
+            pgrep -x mysqld > /dev/null || \
+                error "Failed to start MySQL. Try: sudo mkdir -p /var/run/mysqld && sudo chown mysql:mysql /var/run/mysqld && sudo service mysql start"
+        fi
+    else
+        info "MySQL already running"
+    fi
+
+    # Wait for MySQL to be fully ready (up to 30 seconds)
+    info "Waiting for MySQL to be ready..."
+    local mysql_ready=false
+    for i in {1..30}; do
+        if sudo mysql -u root -e "SELECT 1" > /dev/null 2>&1; then
+            mysql_ready=true
+            success "MySQL is ready"
+            break
+        fi
+        sleep 1
+    done
+    [ "$mysql_ready" = false ] && error "MySQL did not become ready in time"
+
+    # Create metastore DB and user
+    info "Creating Hive metastore database and user..."
+    if ! sudo mysql -u root <<'SQL' 2>/dev/null; then
 CREATE DATABASE IF NOT EXISTS metastore;
 CREATE USER IF NOT EXISTS 'hiveuser'@'localhost' IDENTIFIED BY 'hivepassword';
 GRANT ALL PRIVILEGES ON metastore.* TO 'hiveuser'@'localhost';
 FLUSH PRIVILEGES;
 SQL
-    
-    # Download MySQL connector
-    cd "$INSTALL_DIR/hive/lib"
+        error "Failed to create Hive metastore database. Check MySQL connection."
+    fi
+    success "Metastore database created"
+
+    # Download MySQL JDBC connector
+    info "Downloading MySQL JDBC connector..."
+    cd "$HIVE_HOME/lib"
     [ ! -f "mysql-connector-java-8.0.30.jar" ] && \
         wget -q https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.30/mysql-connector-java-8.0.30.jar
-    
-    # Config
-    cat > "$INSTALL_DIR/hive/conf/hive-site.xml" <<EOF
-<?xml version="1.0"?>
+
+    # Fix Guava version mismatch (Hive ships old guava; replace with Hadoop's)
+    rm -f "$HIVE_HOME/lib/guava-19.0.jar" 2>/dev/null || true
+    cp "$HADOOP_HOME/share/hadoop/common/lib/guava-"*.jar "$HIVE_HOME/lib/" 2>/dev/null || true
+
+    # hive-site.xml
+    mkdir -p "$HIVE_HOME/conf"
+    cat > "$HIVE_HOME/conf/hive-site.xml" <<'HIVESITE'
+<?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <property><name>javax.jdo.option.ConnectionURL</name>
-        <value>jdbc:mysql://localhost:3306/metastore?createDatabaseIfNotExist=true&amp;useSSL=false</value></property>
-    <property><name>javax.jdo.option.ConnectionDriverName</name><value>com.mysql.cj.jdbc.Driver</value></property>
-    <property><name>javax.jdo.option.ConnectionUserName</name><value>hiveuser</value></property>
-    <property><name>javax.jdo.option.ConnectionPassword</name><value>hivepassword</value></property>
-    <property><name>hive.metastore.uris</name><value>thrift://localhost:9083</value></property>
-    <property><name>datanucleus.schema.autoCreateAll</name><value>true</value></property>
+    <property>
+        <name>javax.jdo.option.ConnectionURL</name>
+        <value>jdbc:mysql://localhost:3306/metastore?createDatabaseIfNotExist=true&amp;useSSL=false</value>
+    </property>
+    <property>
+        <name>javax.jdo.option.ConnectionDriverName</name>
+        <value>com.mysql.cj.jdbc.Driver</value>
+    </property>
+    <property>
+        <name>javax.jdo.option.ConnectionUserName</name>
+        <value>hiveuser</value>
+    </property>
+    <property>
+        <name>javax.jdo.option.ConnectionPassword</name>
+        <value>hivepassword</value>
+    </property>
+    <property>
+        <name>hive.metastore.warehouse.dir</name>
+        <value>/user/hive/warehouse</value>
+    </property>
+    <property>
+        <name>hive.metastore.uris</name>
+        <value>thrift://localhost:9083</value>
+    </property>
+    <property>
+        <name>hive.server2.thrift.port</name>
+        <value>10000</value>
+    </property>
+    <property>
+        <name>hive.server2.thrift.bind.host</name>
+        <value>localhost</value>
+    </property>
+    <property>
+        <name>hive.server2.enable.doAs</name>
+        <value>false</value>
+    </property>
+    <property>
+        <name>hive.metastore.schema.verification</name>
+        <value>false</value>
+    </property>
+    <property>
+        <name>datanucleus.schema.autoCreateAll</name>
+        <value>true</value>
+    </property>
+    <property>
+        <name>hive.exec.scratchdir</name>
+        <value>/tmp/hive</value>
+    </property>
 </configuration>
+HIVESITE
+
+    # hive-env.sh
+    cat > "$HIVE_HOME/conf/hive-env.sh" <<EOF
+export HADOOP_HOME=$HADOOP_HOME
+export HIVE_CONF_DIR=$HIVE_HOME/conf
+export HIVE_AUX_JARS_PATH=$HIVE_HOME/lib
 EOF
-    
+    chmod +x "$HIVE_HOME/conf/hive-env.sh"
+
     mark_done "hive_full"
     success "Hive installed and configured"
 }
