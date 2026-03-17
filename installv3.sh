@@ -738,9 +738,64 @@ install_pig() {
     success "Pig installed"
 }
 
+apply_hive_runtime_tuning() {
+    local hive_home=$1
+    local hive_site="$hive_home/conf/hive-site.xml"
+    local tmp_file
+
+    [ -f "$hive_site" ] || return 1
+    tmp_file="${hive_site}.tmp"
+
+    # Remove existing copies of these properties so we can add clean, single entries.
+    awk '
+        BEGIN { in_property=0; block=""; keep_block=1 }
+        {
+            if ($0 ~ /<property>/) {
+                in_property=1
+                block=$0 ORS
+                keep_block=1
+                next
+            }
+
+            if (in_property) {
+                block=block $0 ORS
+                if ($0 ~ /<name>mapreduce.job.reduces<\/name>/ ||
+                    $0 ~ /<name>hive.exec.reducers.bytes.per.reducer<\/name>/) {
+                    keep_block=0
+                }
+                if ($0 ~ /<\/property>/) {
+                    if (keep_block) {
+                        printf "%s", block
+                    }
+                    in_property=0
+                    block=""
+                    keep_block=1
+                }
+                next
+            }
+
+            print
+        }
+    ' "$hive_site" > "$tmp_file" && mv "$tmp_file" "$hive_site"
+
+    sed -i '/<\/configuration>/i\    <property>\
+        <name>mapreduce.job.reduces<\/name>\
+        <value>1<\/value>\
+    <\/property>\
+    <property>\
+        <name>hive.exec.reducers.bytes.per.reducer<\/name>\
+        <value>1000000000<\/value>\
+    <\/property>' "$hive_site"
+}
+
 install_hive() {
     export HIVE_HOME="$INSTALL_DIR/hive"
     if skip_if_installed "hive_full" "Hive" "$INSTALL_DIR/apache-hive-${HIVE_VERSION}-bin" "true"; then
+        if apply_hive_runtime_tuning "$HIVE_HOME"; then
+            success "Applied Hive reducer settings to existing hive-site.xml"
+        else
+            warn "Could not auto-update Hive reducer settings in existing hive-site.xml"
+        fi
         if validate_hive_installation; then
             success "Hive installation health check passed"
             return
@@ -949,6 +1004,14 @@ SQL
     <property>
         <name>hive.exec.scratchdir</name>
         <value>/tmp/hive</value>
+    </property>
+    <property>
+        <name>mapreduce.job.reduces</name>
+        <value>1</value>
+    </property>
+    <property>
+        <name>hive.exec.reducers.bytes.per.reducer</name>
+        <value>1000000000</value>
     </property>
     <property>
         <name>hive.metastore.uris</name>
