@@ -60,7 +60,7 @@ skip_if_installed() {
     local check_dir=$3
     local needs_bin=${4:-true}
     
-    # Do a real-time verification before trusting the state file
+    # Re-check files before trusting saved state
     if [ -n "$check_dir" ]; then
         verify_installation "$component" "$check_dir" "$needs_bin"
     fi
@@ -170,7 +170,7 @@ validate_hive_installation() {
         return 1
     fi
 
-    # Only run smoke test if HDFS and metastore daemon are already running
+    # Run smoke test only if required services are up
     if pgrep -f "NameNode" >/dev/null && nc -z localhost 9000 2>/dev/null && nc -z localhost 9083 2>/dev/null; then
         if ! timeout 120 env JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/hive" -S -e "show databases;" >/dev/null 2>>"$LOG_FILE"; then
             warn "Hive smoke test failed (show databases)"
@@ -663,7 +663,7 @@ install_pig() {
     
     if [ ! -d "pig-${PIG_VERSION}" ] || [ ! -d "pig-${PIG_VERSION}/bin" ]; then
         rm -rf "pig-${PIG_VERSION}"
-        # Custom mirror logic for Pig (more reliable than generic download_file)
+        # Pig download fallback mirrors
         local mirrors=(
             "https://archive.apache.org/dist/pig/pig-${PIG_VERSION}/pig-${PIG_VERSION}.tar.gz"
             "https://downloads.apache.org/pig/pig-${PIG_VERSION}/pig-${PIG_VERSION}.tar.gz"
@@ -707,7 +707,7 @@ install_hive() {
     
     echo -e "\n${BOLD}Installing Hive ${HIVE_VERSION}${NC}"
     
-    # Verify Java 8 exists (Hive 3.x requires Java 8 due to URLClassLoader incompatibility with Java 9+)
+    # Hive 3.x needs Java 8
     check_java_version 8
     
     if ! execute_with_spinner "Updating package lists" sudo apt-get update -qq; then
@@ -735,18 +735,18 @@ install_hive() {
     export HIVE_HOME="$INSTALL_DIR/hive"
     export HADOOP_HOME="$INSTALL_DIR/hadoop"
 
-    # MySQL startup with robust fallbacks
+    # Start MySQL with fallbacks
     if ! pgrep -x mysqld > /dev/null; then
         info "Starting MySQL service..."
 
-        # Ensure mysql-server is installed
+        # Install MySQL if missing
         if ! dpkg -l | grep -q "mysql-server" || ! command -v mysqld > /dev/null; then
             warn "MySQL server missing. Installing..."
             sudo apt-get update -qq
             sudo apt-get install -y mysql-server -qq
         fi
 
-        # Ensure runtime directory exists
+        # Make sure MySQL runtime dir exists
         if [ ! -d "/var/run/mysqld" ]; then
             sudo mkdir -p /var/run/mysqld
             sudo chown mysql:mysql /var/run/mysqld
@@ -782,7 +782,7 @@ install_hive() {
         info "MySQL already running"
     fi
 
-    # Wait for MySQL to be fully ready (up to 30 seconds)
+    # Wait until MySQL is ready
     info "Waiting for MySQL to be ready..."
     local mysql_ready=false
     for i in {1..30}; do
@@ -811,7 +811,7 @@ SQL
     fi
     success "Metastore database created"
 
-    # Download and validate MySQL JDBC connector
+    # Download/check MySQL JDBC jar
     info "Ensuring MySQL JDBC connector is available..."
     cd "$HIVE_HOME/lib"
     local jdbc_jar="mysql-connector-java-8.0.30.jar"
@@ -827,14 +827,14 @@ SQL
         command -v jar >/dev/null 2>&1 && jar tf "$jdbc_jar" >/dev/null 2>&1 || error "$jdbc_jar is invalid after re-download"
     fi
 
-    # Fix Guava version mismatch (Hive ships old guava; replace with Hadoop's)
+    # Replace old Hive guava jar
     rm -f "$HIVE_HOME/lib/guava-19.0.jar" 2>/dev/null || true
     cp "$HADOOP_HOME/share/hadoop/common/lib/guava-"*.jar "$HIVE_HOME/lib/" 2>/dev/null || true
 
-    # Fix commons-collections missing (Hive 3.1.3 needs v3.x; Hadoop 3.4 only ships v4)
+    # Add commons-collections 3.x for Hive
     if ! ls "$HIVE_HOME"/lib/commons-collections-3*.jar &>/dev/null; then
         local cc_found=false
-        # Try Hadoop's lib first
+        # Try local Hadoop jars first
         for dir in "$HADOOP_HOME"/share/hadoop/common/lib "$HADOOP_HOME"/share/hadoop/hdfs/lib "$HADOOP_HOME"/share/hadoop/mapreduce/lib; do
             if ls "$dir"/commons-collections-3*.jar &>/dev/null 2>&1; then
                 cp "$dir"/commons-collections-3*.jar "$HIVE_HOME/lib/"
@@ -842,7 +842,7 @@ SQL
                 break
             fi
         done
-        # Download from Maven Central if not found locally
+        # Download it if not found locally
         if [ "$cc_found" = "false" ]; then
             info "Downloading commons-collections-3.2.2.jar from Maven Central..."
             wget -q "https://repo1.maven.org/maven2/commons-collections/commons-collections/3.2.2/commons-collections-3.2.2.jar" \
@@ -854,7 +854,7 @@ SQL
         success "commons-collections-3.x added to Hive lib"
     fi
 
-    # Fix SLF4J multiple bindings warning
+    # Remove duplicate SLF4J binding
     rm -f "$HIVE_HOME/lib/log4j-slf4j-impl-"*.jar 2>/dev/null || true
 
     # hive-site.xml
@@ -922,19 +922,17 @@ export HIVE_AUX_JARS_PATH=$HIVE_HOME/lib
 EOF
     chmod +x "$HIVE_HOME/conf/hive-env.sh"
 
-    # Patch hadoop-env.sh so it doesn't override JAVA_HOME when Hive sets it to Java 8
-    # Hive calls Hadoop's RunJar which sources hadoop-env.sh — if it hardcodes Java 11,
-    # it overrides hive-env.sh's Java 8 setting, causing the URLClassLoader crash
+    # Keep Hadoop JAVA_HOME override-safe for Hive
     local hadoop_env="$HADOOP_HOME/etc/hadoop/hadoop-env.sh"
     if [ -f "$hadoop_env" ] && grep -q '^export JAVA_HOME=/usr/lib/jvm' "$hadoop_env"; then
         sed -i 's|^export JAVA_HOME=.*|export JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/java-11-openjdk-amd64}|' "$hadoop_env"
         success "Patched hadoop-env.sh to respect Hive's Java 8 override"
     fi
 
-    # Ensure schema is actually valid and consistent, not just partially initialized.
+    # Rebuild/validate Hive schema if needed
     repair_hive_metastore_schema
 
-    # Ensure HDFS is running — Hive needs it for warehouse/scratch dirs
+    # Make sure HDFS is up for Hive dirs
     ensure_service_running "ssh" "sshd" "SSH required for HDFS"
     if ! pgrep -f "NameNode" >/dev/null; then
         execute_with_spinner "Starting HDFS" "$HADOOP_HOME/sbin/start-dfs.sh" || true
@@ -944,10 +942,10 @@ EOF
     "$HADOOP_HOME/bin/hdfs" dfsadmin -safemode leave &>/dev/null || true
     setup_hdfs_directories
 
-    # Start Hive Metastore daemon — the CLI connects via thrift://localhost:9083
+    # Start Hive metastore daemon
     if ! pgrep -f "HiveMetaStore" >/dev/null; then
         JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 nohup "$HIVE_HOME/bin/hive" --service metastore >>"$LOG_FILE" 2>&1 &
-        # Wait for metastore with spinner
+        # Wait for metastore port
         (
             for i in $(seq 1 60); do
                 nc -z localhost 9083 2>/dev/null && exit 0
@@ -1002,7 +1000,7 @@ configure_eclipse_user_library() {
     for subdir in "${hadoop_dirs[@]}"; do
         for jar in "$INSTALL_DIR/hadoop/share/hadoop/$subdir"/*.jar; do
             if [[ -f "$jar" ]] && [[ ! "$jar" == *"tests.jar" ]] && [[ ! "$jar" == *"sources.jar" ]]; then
-                # Eclipse needs absolute paths. Escape for XML.
+                # Eclipse user library needs absolute jar paths
                 local jar_path=$(readlink -f "$jar")
                 xml_content="${xml_content}<archive path=\"${jar_path}\"/>"
             fi
@@ -1100,8 +1098,7 @@ WSLCONF'
     # Create directory before writing script
     mkdir -p "$HOME/.local/bin"
     
-    # Create custom configuration directory for Eclipse to bypass Snap read-only limits
-    # This allows us to suppress the workspace selection dialog
+    # Use custom Eclipse config directory
     local eclipse_config="$HOME/.hadoop-eclipse-config"
     mkdir -p "$eclipse_config/.settings"
     
@@ -1154,8 +1151,7 @@ $HADOOP_HOME/bin/hdfs dfs -chmod 777 /tmp > /dev/null 2>&1
 echo "Environment ready. Launching Eclipse..."
 echo ""
 
-# We use a custom configuration directory to ensure our preferences (like suppressing the workspace prompt) apply.
-# Snap's internal config is read-only, so this redirection is required.
+# Use custom config because snap config is read-only.
 exec eclipse -configuration "$HOME/.hadoop-eclipse-config" "$@"
 EOF
 
@@ -1300,8 +1296,7 @@ create_eclipse_project() {
     # Create project settings directory
     mkdir -p "$proj_dir/.settings"
 
-    # FORCE Java 1.8 Compiler Settings at Project Level
-    # This prevents Eclipse from using its internal Java 21 default
+    # Force project compiler level to Java 8
     cat > "$proj_dir/.settings/org.eclipse.jdt.core.prefs" <<EOF
 eclipse.preferences.version=1
 org.eclipse.jdt.core.compiler.codegen.inlineJsrBytecode=enabled
@@ -1337,7 +1332,7 @@ EOF
 </projectDescription>
 EOF
 
-    # Create .classpath with JavaSE-11 (User requested JDK 11)
+    # Create .classpath with JavaSE-1.8
     cat > "$proj_dir/.classpath" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
@@ -1345,7 +1340,7 @@ EOF
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.8"/>
 EOF
 
-    # Add ALL Hadoop JARs (Common, HDFS, YARN, MapReduce) and their libs
+    # Add Hadoop jars to classpath
     info "Adding Hadoop JARs to classpath..."
     
     # Directories to include
@@ -1362,7 +1357,7 @@ EOF
     
     for subdir in "${hadoop_dirs[@]}"; do
         for jar in "$INSTALL_DIR/hadoop/share/hadoop/$subdir"/*.jar; do
-            # Skip test jars and sources to keep it clean, but ensure we get the main ones
+            # Skip test/source jars
             if [[ -f "$jar" ]] && [[ ! "$jar" == *"tests.jar" ]] && [[ ! "$jar" == *"sources.jar" ]]; then
                 echo "	<classpathentry kind=\"lib\" path=\"$jar\"/>" >> "$proj_dir/.classpath"
             fi
@@ -1379,8 +1374,7 @@ public class $class_name {
 }
 EOF
     
-    # Create Launch Configuration
-    # This ensures "Run" uses the correct JRE (Java 1.8) instead of Eclipse internal (Java 21)
+    # Create launch config with Java 8 JRE
     cat > "$proj_dir/$class_name.launch" <<EOF
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <launchConfiguration type="org.eclipse.jdt.launching.localJavaApplication">
@@ -1406,17 +1400,16 @@ EOF
     info "Location: $proj_dir"
     info "Launching Eclipse..."
     
-    # Launch Eclipse with the workspace AND the file open using the full path
-    # Use the wrapper script to ensure environment variables are set
+    # Use wrapper script to launch Eclipse
     local eclipse_cmd="eclipse-hadoop"
     if ! command -v "$eclipse_cmd" &>/dev/null; then
         eclipse_cmd="$HOME/.local/bin/eclipse-hadoop.sh"
     fi
     
-    # Launch without logging as requested
+    # Launch Eclipse in background
     nohup "$eclipse_cmd" -data "$workspace_dir" --launcher.openFile "$java_file" >/dev/null 2>&1 &
     
-    # Give it a moment to detach
+    # Give process time to detach
     sleep 2
     success "Eclipse is launching!"
     info "Opening may take 20-60 seconds. Please be patient..."
@@ -1806,7 +1799,7 @@ main() {
     
     preflight_checks
     
-    # Verify installations match state file (detect stale/missing installs)
+    # Re-check installs against saved state
     verify_installation "hadoop_full" "$INSTALL_DIR/hadoop-${HADOOP_VERSION}"
     verify_installation "spark_full" "$INSTALL_DIR/spark-${SPARK_VERSION}-bin-hadoop3"
     verify_installation "kafka_full" "$INSTALL_DIR/kafka_2.13-${KAFKA_VERSION}"
