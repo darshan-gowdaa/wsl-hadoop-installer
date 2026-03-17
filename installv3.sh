@@ -133,6 +133,46 @@ setup_hdfs_directories() {
     "$HADOOP_HOME/bin/hdfs" dfs -chmod 777 /spark-logs /user/hive/warehouse /tmp/hive 2>/dev/null || true
 }
 
+validate_hive_installation() {
+    local hive_home="${HIVE_HOME:-$INSTALL_DIR/hive}"
+    local hive_site="$hive_home/conf/hive-site.xml"
+    local jdbc_jar="$hive_home/lib/mysql-connector-java-8.0.30.jar"
+    local schema_version
+
+    [ -x "$hive_home/bin/hive" ] || return 1
+    [ -f "$hive_site" ] || return 1
+
+    if grep -q '<name>hive.metastore.uris</name>' "$hive_site" 2>/dev/null; then
+        warn "Found hive.metastore.uris in hive-site.xml; this can break Hive CLI when metastore daemon is not up"
+        return 1
+    fi
+
+    if [ ! -f "$jdbc_jar" ] || [ "$(stat -c%s "$jdbc_jar" 2>/dev/null || echo 0)" -lt 1000000 ]; then
+        warn "MySQL JDBC connector is missing or looks corrupted"
+        return 1
+    fi
+
+    if command -v jar >/dev/null 2>&1 && ! jar tf "$jdbc_jar" >/dev/null 2>&1; then
+        warn "MySQL JDBC connector failed integrity check"
+        return 1
+    fi
+
+    ensure_service_running "mysql" "mysqld" "MySQL is required for Hive metastore checks" || return 1
+
+    schema_version=$(sudo mysql -N -s -u root -e "SELECT SCHEMA_VERSION FROM metastore.VERSION LIMIT 1" 2>/dev/null || true)
+    if [ -z "$schema_version" ]; then
+        warn "Hive metastore VERSION table is missing or empty"
+        return 1
+    fi
+
+    if ! JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$hive_home/bin/hive" -S -e "show databases;" >/dev/null 2>>"$LOG_FILE"; then
+        warn "Hive smoke test failed (show databases)"
+        return 1
+    fi
+
+    return 0
+}
+
 check_service_port() {
     local name=$1
     local port=$2
@@ -608,7 +648,15 @@ install_pig() {
 }
 
 install_hive() {
-    skip_if_installed "hive_full" "Hive" "$INSTALL_DIR/apache-hive-${HIVE_VERSION}-bin" "true" && return
+    export HIVE_HOME="$INSTALL_DIR/hive"
+    if skip_if_installed "hive_full" "Hive" "$INSTALL_DIR/apache-hive-${HIVE_VERSION}-bin" "true"; then
+        if validate_hive_installation; then
+            success "Hive installation health check passed"
+            return
+        fi
+        warn "Hive is marked installed but health checks failed. Re-running Hive setup..."
+        sed -i '/^hive_full$/d' "$STATE_FILE" 2>/dev/null || true
+    fi
     
     echo -e "\n${BOLD}Installing Hive ${HIVE_VERSION}${NC}"
     
@@ -713,12 +761,20 @@ SQL
     fi
     success "Metastore database created"
 
-    # Download MySQL JDBC connector
-    info "Downloading MySQL JDBC connector..."
+    # Download and validate MySQL JDBC connector
+    info "Ensuring MySQL JDBC connector is available..."
     cd "$HIVE_HOME/lib"
-    if [ ! -f "mysql-connector-java-8.0.30.jar" ]; then
-        wget -q https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.30/mysql-connector-java-8.0.30.jar || \
-            error "Failed to download mysql-connector-java-8.0.30.jar"
+    local jdbc_jar="mysql-connector-java-8.0.30.jar"
+    local jdbc_url="https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.30/mysql-connector-java-8.0.30.jar"
+    local jdbc_size=$(stat -c%s "$jdbc_jar" 2>/dev/null || echo 0)
+    if [ ! -f "$jdbc_jar" ] || [ "$jdbc_size" -lt 1000000 ]; then
+        rm -f "$jdbc_jar"
+        wget -q "$jdbc_url" -O "$jdbc_jar" || error "Failed to download $jdbc_jar"
+    fi
+    if command -v jar >/dev/null 2>&1 && ! jar tf "$jdbc_jar" >/dev/null 2>&1; then
+        rm -f "$jdbc_jar"
+        wget -q "$jdbc_url" -O "$jdbc_jar" || error "Failed to re-download valid $jdbc_jar"
+        command -v jar >/dev/null 2>&1 && jar tf "$jdbc_jar" >/dev/null 2>&1 || error "$jdbc_jar is invalid after re-download"
     fi
 
     # Fix Guava version mismatch (Hive ships old guava; replace with Hadoop's)
@@ -835,6 +891,13 @@ SQL
                 error "Hive metastore schema initialization failed. Check MySQL and $LOG_FILE"
             fi
         fi
+    fi
+
+    info "Running Hive smoke test..."
+    if JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 "$HIVE_HOME/bin/hive" -S -e "show databases;" >/dev/null 2>>"$LOG_FILE"; then
+        success "Hive query smoke test passed"
+    else
+        error "Hive installed but smoke test failed. See $LOG_FILE for metastore/JDBC errors"
     fi
 
     mark_done "hive_full"
