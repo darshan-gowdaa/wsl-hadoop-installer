@@ -305,6 +305,10 @@ install_system_deps() {
         warn "Package update had warnings, continuing..."
     fi
     
+    if ! execute_with_spinner "Upgrading system packages" sudo apt-get upgrade -y -qq; then
+        warn "Package upgrade had warnings, continuing..."
+    fi
+    
     local pkgs=(openjdk-8-jdk openjdk-11-jdk openjdk-17-jdk wget ssh netcat-openbsd vim mysql-server rsync)
     if ! execute_with_spinner "Installing packages" sudo apt-get install -y "${pkgs[@]}" -qq; then
         error "Package installation failed. Check your internet connection and try again."
@@ -357,6 +361,13 @@ install_hadoop() {
     skip_if_installed "hadoop_full" "Hadoop" "$INSTALL_DIR/hadoop-${HADOOP_VERSION}" "true" && return
     
     echo -e "\n${BOLD}Installing Hadoop ${HADOOP_VERSION}${NC}"
+    
+    if ! execute_with_spinner "Updating package lists" sudo apt-get update -qq; then
+        warn "Package update had warnings, continuing..."
+    fi
+    if ! execute_with_spinner "Upgrading system packages" sudo apt-get upgrade -y -qq; then
+        warn "Package upgrade had warnings, continuing..."
+    fi
     
     # Verify Java 11 exists
     check_java_version 11
@@ -593,6 +604,13 @@ install_hive() {
     skip_if_installed "hive_full" "Hive" "$INSTALL_DIR/apache-hive-${HIVE_VERSION}-bin" "true" && return
     
     echo -e "\n${BOLD}Installing Hive ${HIVE_VERSION}${NC}"
+    
+    if ! execute_with_spinner "Updating package lists" sudo apt-get update -qq; then
+        warn "Package update had warnings, continuing..."
+    fi
+    if ! execute_with_spinner "Upgrading system packages" sudo apt-get upgrade -y -qq; then
+        warn "Package upgrade had warnings, continuing..."
+    fi
     
     cd "$INSTALL_DIR"
     
