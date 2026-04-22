@@ -1,9 +1,15 @@
 # Hadoop Ecosystem Installer v4 (WSL & Native Linux)
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/darshan-gowdaa/wsl-hadoop-installer/main/installv4.sh)
+```
+
+
 <p align="center">
-  <img width="500" height="600" alt="image" src="https://github.com/user-attachments/assets/c4f1bd30-eaed-4282-bf5f-936049a9d249" />
+  <img width="500" height="350" alt="image" src="https://github.com/user-attachments/assets/4eecbabc-253e-4568-af65-ad1f28de6798" />
 </p>
 
-Simple one-command setup to run the **Hadoop ecosystem on WSL2 and Native Linux**.
+Simple one-command setup to run the **Hadoop ecosystem on WSL2 and Native Linux**. <br>
 Made for students so you don't waste time fixing Java, SSH, or HDFS issues. Now platform-aware!
 
 ---
@@ -84,7 +90,7 @@ You can configure WSL memory either through **WSL Settings in Windows** (easier)
    - **Memory Size**: Set to **8192 MB** (8 GB)
    - **Swap Size**: Set to **2048 MB** (2 GB)
 
-   <img width="600" alt="WSL Memory Settings" src="https://github.com/user-attachments/assets/c69aee87-732f-4b46-a5bb-55a71b3e014d" />
+   <img width="450" alt="WSL Memory Settings" src="https://github.com/user-attachments/assets/c69aee87-732f-4b46-a5bb-55a71b3e014d" />
 
 4. **Apply Changes**
    - The settings save automatically
